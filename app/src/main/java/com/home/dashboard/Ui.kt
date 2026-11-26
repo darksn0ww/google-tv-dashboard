@@ -908,8 +908,9 @@ private fun ColumnScope.HeatingContent(state: HeatingState) {
         }
         Txt(deg(h.current).takeIf { h.current != null } ?: "--°", 38.sp, FontWeight.Medium, lineHeight = 42.sp, shadow = false)
         val range = h.upperTarget?.let { "–${deg(it)}" }.orEmpty()
-        val note = if (h.away) " · away" else if (h.eco) " · eco" else if (h.manual) " · manual" else ""
-        Txt("Set to ${deg(h.target)}$range$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+        val note = if (h.boost) " · boost" else if (h.away) " · away" else if (h.eco) " · eco" else if (h.manual) " · manual" else ""
+        val target = if (h.auto) "Auto" else "Set to ${deg(h.target)}$range"
+        Txt("$target$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
         Spacer(Modifier.weight(1f))
         h.nextAt?.let {
             // Within a day the time alone is clear, and a weekday wouldn't fit beside the temperature.
@@ -918,8 +919,10 @@ private fun ColumnScope.HeatingContent(state: HeatingState) {
             Txt("Next: $at → ${deg(h.nextTarget)}", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
         }
         val humidity = h.humidity?.let { "${it.roundToInt()}%" }
-        if (h.active) {
-            Txt(listOfNotNull("Heating", humidity?.let { "$it RH" }).joinToString(" · "), 12.sp, FontWeight.SemiBold, color = Color(0xFFFF9F0A), maxLines = 1, shadow = false)
+        if (h.active || h.cooling) {
+            val doing = if (h.cooling) "Cooling" else "Heating"
+            val tint = if (h.cooling) Color(0xFF64D2FF) else Color(0xFFFF9F0A)
+            Txt(listOfNotNull(doing, humidity?.let { "$it RH" }).joinToString(" · "), 12.sp, FontWeight.SemiBold, color = tint, maxLines = 1, shadow = false)
         } else if (humidity != null) {
             Txt("Humidity $humidity", 12.sp, FontWeight.Medium, alpha = 0.7f, maxLines = 1, shadow = false)
         }

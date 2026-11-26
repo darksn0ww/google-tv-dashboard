@@ -389,7 +389,7 @@ Calendar widget
   say "
 Heating and smart home
   1. None
-  2. Through Home Assistant (heating, vacuum, plugs, lights)
+  2. Through Home Assistant (HomeKit, Hive or other thermostats; vacuum, plugs, lights)
   3. Straight from tado (no server needed)
   4. Straight from Google Nest (no server needed, experimental)"
   case $(ask "Which?" 1) in

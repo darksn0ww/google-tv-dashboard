@@ -152,7 +152,7 @@ it holds your API key and private links.
 
 | Source | Set | Notes |
 | --- | --- | --- |
-| Home Assistant | `homeAssistant.climate` | Any thermostat it supports; also gives the smart home panel |
+| Home Assistant | `homeAssistant.climate` | HomeKit, Hive and any other thermostat it supports; also gives the smart home panel |
 | tado directly | `"tado": true` | No server needed |
 | Nest directly | `nest` | No server needed; experimental |
 
@@ -169,8 +169,16 @@ alongside Home Assistant's tado integration unless you have allowance to spare.
 
 The heating card reads a Home Assistant `climate` entity over the
 [REST API](https://developers.home-assistant.io/docs/api/rest/), once a minute while the dashboard
-is on screen. It works with any thermostat Home Assistant supports; it was built against the
-tado° integration.
+is on screen. It reads any `climate` entity: HomeKit thermostats, Hive, tado° and others,
+including ones that cool or hold a temperature range. It has been used with a tado° thermostat,
+both through the cloud and through HomeKit; the other types are covered by tests only.
+
+**Hive:** add Home Assistant's built-in Hive integration and use its `climate` entity. The
+dashboard has no direct Hive sign-in, as Hive offers no official API.
+
+**tado limits its cloud API** (100 requests a day without a subscription). For live readings with
+no limit, add the tado bridge with Home Assistant's **HomeKit Device** integration and use that
+`climate` entity and its sensors.
 
 1. In Home Assistant, add a user for the TV (**Settings > People**) with **Administrator** off.
 2. Sign in as that user, open its profile, and under **Security > Long-lived access tokens**

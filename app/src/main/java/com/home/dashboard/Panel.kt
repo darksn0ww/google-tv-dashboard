@@ -88,6 +88,9 @@ private val SideColor = Color(0xFF1C1C1E)
 private val FullColor = Color(0xFF111A2B)
 private val Dim = Color(0xFFAEAEB2)
 private val Amber = Color(0xFFFF9F0A)
+private val Cool = Color(0xFF64D2FF)
+
+private fun tint(h: Heating, idle: Color) = if (h.active) Amber else if (h.cooling) Cool else idle
 
 private class PanelModel(
     val cfg: HaConfig,
@@ -245,7 +248,7 @@ private fun SidePanel(m: PanelModel, sizing: Modifier, initial: Modifier, onExpa
                 Spacer(Modifier.width(16.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Txt(h.zone, 15.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
-                    Txt(heatingLine(h), 13.sp, FontWeight.SemiBold, color = if (h.active) Amber else Color.White, shadow = false)
+                    Txt(heatingLine(h), 13.sp, FontWeight.SemiBold, color = tint(h, Color.White), shadow = false)
                     val extra = listOfNotNull(
                         h.nextAt?.let { "Next ${clock(it)} → ${deg(h.nextTarget)}" },
                         h.humidity?.let { "${it.roundToInt()}% humidity" },
@@ -312,9 +315,11 @@ private fun FullHome(m: PanelModel, sizing: Modifier, onShrink: () -> Unit) {
                     ) {
                         Dial(h, 212.dp, 18.dp) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                if (h.active) Txt("HEATING", 12.sp, FontWeight.Bold, color = Amber, shadow = false)
+                                if (h.active || h.cooling) {
+                                    Txt(if (h.cooling) "COOLING" else "HEATING", 12.sp, FontWeight.Bold, color = tint(h, Dim), shadow = false)
+                                }
                                 Txt(deg(h.current), 40.sp, FontWeight.SemiBold, shadow = false)
-                                Txt("Set to ${deg(h.target)}", 13.sp, FontWeight.Medium, color = Dim, shadow = false)
+                                Txt(setting(h), 13.sp, FontWeight.Medium, color = Dim, shadow = false)
                             }
                         }
                         Spacer(Modifier.weight(1f))
@@ -366,16 +371,22 @@ private fun FullHome(m: PanelModel, sizing: Modifier, onShrink: () -> Unit) {
 
 private fun lights(n: Int) = if (n == 1) "1 light on" else "$n lights on"
 
-private fun heatingLine(h: Heating) = when {
-    h.target == null -> "Off"
-    h.active -> "Heating to ${deg(h.target)}"
-    else -> "Set to ${deg(h.target)}"
+private fun setting(h: Heating): String {
+    if (h.auto) return "Auto"
+    if (h.target == null) return "Off"
+    return "Set to ${deg(h.target)}" + h.upperTarget?.let { "–${deg(it)}" }.orEmpty()
 }
+
+private fun heatingLine(h: Heating) = when {
+    h.target != null && h.active -> "Heating to ${deg(h.target)}"
+    h.target != null && h.cooling -> "Cooling to ${deg(h.upperTarget ?: h.target)}"
+    else -> setting(h)
+} + if (h.boost) " · boost" else ""
 
 private fun clock(millis: Long): String = java.time.Instant.ofEpochMilli(millis)
     .atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 
-/** A read-only gauge from 5° to 25°. */
+/** A read-only gauge over the thermostat's own range. */
 @Composable
 private fun Dial(h: Heating, size: Dp, stroke: Dp, content: @Composable () -> Unit) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
@@ -385,8 +396,8 @@ private fun Dial(h: Heating, size: Dp, stroke: Dp, content: @Composable () -> Un
             val corner = Offset(width / 2, width / 2)
             val style = Stroke(width, cap = StrokeCap.Round)
             drawArc(Color(0xFF48484A), 135f, 270f, false, corner, arc, style = style)
-            val part = (((h.current ?: 5.0) - 5) / 20).toFloat().coerceIn(0f, 1f)
-            drawArc(if (h.active) Amber else Color(0xFF8E8E93), 135f, 270f * part, false, corner, arc, style = style)
+            val part = (((h.current ?: h.min) - h.min) / (h.max - h.min)).toFloat().coerceIn(0f, 1f)
+            drawArc(tint(h, Color(0xFF8E8E93)), 135f, 270f * part, false, corner, arc, style = style)
         }
         content()
     }

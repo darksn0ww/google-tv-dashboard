@@ -290,7 +290,7 @@
             if ($camera.url) { $camera }
         })
         $config.cameras = $cameras
-        Write-Host "`nHeating and smart home`n  1. None`n  2. Through Home Assistant (heating, vacuum, plugs, lights)`n  3. Straight from tado (no server needed)`n  4. Straight from Google Nest (no server needed, experimental)"
+        Write-Host "`nHeating and smart home`n  1. None`n  2. Through Home Assistant (HomeKit, Hive or other thermostats; vacuum, plugs, lights)`n  3. Straight from tado (no server needed)`n  4. Straight from Google Nest (no server needed, experimental)"
         switch (Ask 'Which?' '1') {
             '2' { Set-HomeAssistant $config }
             '3' {

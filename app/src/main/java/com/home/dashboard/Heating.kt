@@ -17,6 +17,11 @@ data class Heating(
     val humidity: Double? = null,
     val active: Boolean = false, // calling for heat right now
     val away: Boolean = false,
+    val boost: Boolean = false, // Hive: heating flat out for a while
+    val cooling: Boolean = false,
+    val auto: Boolean = false, // on, but the thermostat names no target
+    val min: Double = 5.0, // the thermostat's range, for the dial
+    val max: Double = 25.0,
     val nextAt: Long? = null, // next scheduled change, epoch millis
     val nextTarget: Double? = null,
 )
@@ -51,27 +56,54 @@ data class HaConfig(
     override fun toString() = "HaConfig(climate=$climate)" // keep the token out of any log
 }
 
+private fun HaEntity.has(mode: String): Boolean {
+    val modes = attributes.optJSONArray("hvac_modes") ?: return false
+    return (0 until modes.length()).any { modes.optString(it) == mode }
+}
+
+/**
+ * Reads any `climate` entity: tado (cloud or HomeKit), Hive, and other thermostats, including ones
+ * that cool, hold a range (`heat_cool`) or run on auto without a target.
+ */
 fun heatingFrom(climate: HaEntity, temperature: HaEntity?, humidity: HaEntity?, name: String): Heating {
     fun HaEntity?.value() = this?.takeIf { it.available }?.state?.toDoubleOrNull()
+    val off = climate.state == "off"
+    val range = climate.state == "heat_cool" && climate.number("target_temp_low") != null
+    val target = when {
+        off -> null
+        range -> climate.number("target_temp_low")
+        else -> climate.number("temperature")
+    }
+    val action = climate.attributes.optString("hvac_action")
+    val preset = climate.attributes.optString("preset_mode").lowercase()
+    val min = climate.number("min_temp") ?: 5.0
     return Heating(
         zone = name.ifBlank { climate.attributes.optString("friendly_name") }.ifBlank { "Heating" },
         current = temperature.value() ?: climate.number("current_temperature"),
-        target = if (climate.state == "off") null else climate.number("temperature"),
-        manual = climate.state == "heat", // "auto" means following the schedule
+        target = target,
+        // With an "auto" mode (tado through the cloud, Hive), "heat" means set by hand. Without one
+        // (HomeKit and most thermostats) "heat" is the normal state and says nothing.
+        manual = climate.state == "heat" && climate.has("auto") && preset != "boost",
         updated = listOfNotNull(climate, temperature, humidity).filter { it.available }.maxOf { it.updated },
+        upperTarget = if (range) climate.number("target_temp_high") else null,
         humidity = humidity.value() ?: climate.number("current_humidity"),
-        active = climate.attributes.optString("hvac_action") == "heating",
-        away = climate.attributes.optString("preset_mode") == "away",
+        active = action == "heating",
+        away = preset == "away",
+        boost = preset == "boost",
+        cooling = action == "cooling",
+        auto = !off && target == null,
+        min = min,
+        max = (climate.number("max_temp") ?: 25.0).coerceAtLeast(min + 1),
     )
 }
 
 /**
- * The next time the weekly [schedule] changes temperature: `{"monday": [["06:30", 19.0], ...], ...}`,
- * with null meaning off. Returns epoch millis and the new temperature.
+ * Every temperature change in the weekly [schedule] from yesterday to a week ahead, in order.
+ * The schedule is `{"monday": [["06:30", 19.0], ...], ...}`, with null meaning off.
  */
-fun nextChange(schedule: JSONObject, now: ZonedDateTime): Pair<Long, Double?>? = runCatching {
+private fun changes(schedule: JSONObject, now: ZonedDateTime): List<Pair<ZonedDateTime, Double?>> =
     // From yesterday, so we know the temperature in force just after midnight; to the same day next week.
-    val changes = (-1L..7L).flatMap { offset ->
+    (-1L..7L).flatMap { offset ->
         val date = now.toLocalDate().plusDays(offset)
         val blocks = schedule.getJSONArray(date.dayOfWeek.name.lowercase())
         (0 until blocks.length()).map {
@@ -79,14 +111,24 @@ fun nextChange(schedule: JSONObject, now: ZonedDateTime): Pair<Long, Double?>? =
             date.atTime(LocalTime.parse(b.getString(0))).atZone(now.zone) to if (b.isNull(1)) null else b.getDouble(1)
         }
     }.sortedBy { it.first.toInstant() }
-    val current = changes.last { !it.first.isAfter(now) }.second
-    changes.firstOrNull { it.first.isAfter(now) && it.second != current }
+
+/** The next time the schedule changes temperature: epoch millis and the new temperature. */
+fun nextChange(schedule: JSONObject, now: ZonedDateTime): Pair<Long, Double?>? = runCatching {
+    val all = changes(schedule, now)
+    val current = all.last { !it.first.isAfter(now) }.second
+    all.firstOrNull { it.first.isAfter(now) && it.second != current }
         ?.let { it.first.toInstant().toEpochMilli() to it.second }
 }.getOrNull()
 
 /** The schedule doesn't apply while the heating is off, set by hand or in away mode. */
 fun Heating.withSchedule(schedule: JSONObject?, off: Boolean, now: ZonedDateTime): Heating {
-    val next = if (schedule == null || off || manual || away) null else nextChange(schedule, now)
+    var next = if (schedule == null || off || manual || away || boost) null else nextChange(schedule, now)
+    if (next != null) {
+        // A thermostat that can't say it was set by hand: a target the schedule doesn't explain means
+        // it was. The next target counts too, as tado's Early Start heats towards it ahead of time.
+        val scheduled = runCatching { changes(schedule!!, now).last { !it.first.isAfter(now) }.second }.getOrNull()
+        if (target != null && target != scheduled && target != next.second) next = null
+    }
     return copy(nextAt = next?.first, nextTarget = next?.second)
 }
 
@@ -102,6 +144,8 @@ class HaHeating(private val cfg: HaConfig, private val cache: File) {
             zone = j.getString("zone"), current = d("current"), target = d("target"),
             manual = j.getBoolean("manual"), updated = j.getLong("updated"), humidity = d("humidity"),
             active = j.getBoolean("active"), away = j.getBoolean("away"),
+            upperTarget = d("upperTarget"), boost = j.optBoolean("boost"), cooling = j.optBoolean("cooling"),
+            auto = j.optBoolean("auto"), min = d("min") ?: 5.0, max = d("max") ?: 25.0,
             nextAt = if (j.has("nextAt")) j.getLong("nextAt").takeIf { it > System.currentTimeMillis() } else null,
             nextTarget = d("nextTarget"),
         )
@@ -111,6 +155,8 @@ class HaHeating(private val cfg: HaConfig, private val cache: File) {
         val j = JSONObject().put("entity", cfg.climate).put("zone", h.zone).put("current", h.current)
             .put("target", h.target).put("manual", h.manual).put("updated", h.updated)
             .put("humidity", h.humidity).put("active", h.active).put("away", h.away)
+            .put("upperTarget", h.upperTarget).put("boost", h.boost).put("cooling", h.cooling)
+            .put("auto", h.auto).put("min", h.min).put("max", h.max)
             .put("nextAt", h.nextAt).put("nextTarget", h.nextTarget)
         runCatching { cache.writeText(j.toString()) }
     }

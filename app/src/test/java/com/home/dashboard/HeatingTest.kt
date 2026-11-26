@@ -2,6 +2,7 @@ package com.home.dashboard
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,8 +56,19 @@ class HeatingTest {
         assertEquals(ms("2026-01-05T22:00:00Z") to 16.0, nextChange(week, at("07:00"))) // 09:00 changes nothing
         assertEquals(ms("2026-01-06T00:00:00Z") to null, nextChange(week, at("23:00")))
         assertNull(nextChange(JSONObject("{}"), at("03:00")))
-        val manual = heatingFrom(parseEntity(entity("climate.room", "heat")), null, null, "")
+        val cloud = entity("climate.room", "heat", """{"hvac_modes":["off","auto","heat"],"temperature":21.0}""")
+        val manual = heatingFrom(parseEntity(cloud), null, null, "")
+        assertTrue(manual.manual)
         assertNull(manual.withSchedule(week, false, at("03:00")).nextAt)
+
+        // HomeKit only knows off and heat: judge by the target instead.
+        fun local(target: Double) = heatingFrom(
+            parseEntity(entity("climate.room", "heat", """{"hvac_modes":["off","heat"],"temperature":$target}""")), null, null, "",
+        )
+        assertFalse(local(19.0).manual)
+        assertEquals(16.0, local(19.0).withSchedule(week, false, at("07:00")).nextTarget!!, 0.0) // on schedule
+        assertEquals(16.0, local(16.0).withSchedule(week, false, at("21:30")).nextTarget!!, 0.0) // heading there early
+        assertNull(local(23.0).withSchedule(week, false, at("07:00")).nextAt) // turned up by hand
     }
 
     @Test fun panelOnlyDrivesListedDevices() {
@@ -100,6 +112,28 @@ class HeatingTest {
     @Test fun readsAutomaticLocation() {
         val p = Locator.parse("""{"latitude":"51.5","longitude":"-0.12","city":"London"}""")
         assertEquals(Place(51.5, -0.12, "London"), p)
+    }
+
+    private fun read(state: String, attributes: String) =
+        heatingFrom(parseEntity(entity("climate.t", state, attributes)), null, null, "T")
+
+    @Test fun otherThermostats() {
+        // HomeKit "auto" with both a heating and a cooling threshold
+        val range = read("heat_cool", """{"target_temp_low":18.0,"target_temp_high":24.0,"hvac_action":"cooling","min_temp":10,"max_temp":32}""")
+        assertEquals(18.0, range.target!!, 0.0)
+        assertEquals(24.0, range.upperTarget!!, 0.0)
+        assertTrue(range.cooling)
+        assertEquals(10.0, range.min, 0.0)
+        // a HomeKit heater-cooler on auto names no target, which is not the same as off
+        assertTrue(read("heat_cool", """{"current_temperature":20.0}""").auto)
+        assertFalse(read("off", """{"temperature":7.0}""").auto)
+        // Hive: schedule is "auto", boost is a preset
+        val hive = """"hvac_modes":["auto","heat","off"],"temperature":22.0"""
+        assertFalse(read("auto", "{$hive}").manual)
+        assertTrue(read("heat", "{$hive}").manual)
+        val boost = read("heat", """{$hive,"preset_mode":"boost"}""")
+        assertTrue(boost.boost)
+        assertFalse(boost.manual)
     }
 
     /** A one-route-table stand-in for Home Assistant. */
