@@ -176,7 +176,7 @@ token, which can do whatever its Home Assistant user can.
 
 ### Next scheduled change (tado, experimental)
 
-> **Not yet tried against a real tado account.** For tado V2/V3; tado X is not supported.
+> **Experimental.** Tried with one tado V2/V3 setup; tado X is not supported.
 
 Home Assistant's tado integration doesn't publish the schedule, so `tools/tado-schedule.py`
 fetches it, at most once every 7 days (a few API calls the first time, then two a week).
