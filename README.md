@@ -19,12 +19,26 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 
 Used on a Google TV Streamer and a TCL Google TV, both Android 14.
 
-## Requirements
+## Install a release (no build tools needed)
+
+You need [`adb`](https://developer.android.com/tools/releases/platform-tools) on a Mac or Linux computer.
+
+1. Download `tv-dashboard.apk`, `install.sh` and `config.example.json` from the
+   [latest release](../../releases/latest).
+2. On the TV, turn on Developer options and Wireless debugging, then `adb pair` and `adb connect`.
+3. Copy `config.example.json` to `config.json`, edit it, and run:
+
+       bash install.sh <tv-ip:port> tv-dashboard.apk config.json
+
+To update, run the same command with the new APK and leave out `config.json`.
+Installing the app switches on an accessibility service (see [Permissions](#permissions)).
+
+## Requirements to build from source
 
 - A Google TV / Android TV device (Android 9 or later) with Wireless debugging
 - JDK 17, the Android SDK (platform 34) and `adb`. The deploy script is written for zsh.
 
-## Install
+## Build and install
 
 1. Tell Gradle where the SDK is: set `ANDROID_HOME`, or add `sdk.dir=...` to `local.properties`.
 2. On the TV, enable Developer options and Wireless debugging, then `adb pair` and `adb connect`.

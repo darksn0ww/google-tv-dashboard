@@ -1,8 +1,14 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Published releases are signed with the maintainer's key, described by a properties file outside
+// the repo (storeFile, storePassword, keyAlias, keyPassword). Everyone else gets their debug key.
+val signingFile = System.getenv("RELEASE_SIGNING")?.let { file(it) }
 
 android {
     namespace = "com.home.dashboard"
@@ -11,16 +17,24 @@ android {
         applicationId = "com.home.dashboard"
         minSdk = 28
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.0"
+    }
+    signingConfigs {
+        if (signingFile != null) create("published") {
+            val p = Properties().apply { signingFile.inputStream().use { load(it) } }
+            storeFile = file(p.getProperty("storeFile"))
+            storePassword = p.getProperty("storePassword")
+            keyAlias = p.getProperty("keyAlias")
+            keyPassword = p.getProperty("keyPassword")
+        }
     }
     buildTypes {
         // What goes on the TVs: optimised and non-debuggable (debug Compose builds are very slow).
-        // Signed with the local debug key so it updates the already-installed app in place.
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (signingFile != null) "published" else "debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
