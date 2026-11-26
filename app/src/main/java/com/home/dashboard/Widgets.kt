@@ -274,7 +274,9 @@ private fun ColumnScope.HeatingContent(state: HeatingState) {
         Spacer(Modifier.height(4.dp))
         val problem = state.problem
         Txt(
-            if (problem == null) "Updated ${readingTime(h.updated)}" else "Stale ${readingTime(h.updated)} · $problem",
+            if (problem != null) "Stale ${readingTime(h.updated)} · $problem"
+            else if (h.onChangeOnly) "No change since ${readingTime(h.updated)}"
+            else "Updated ${readingTime(h.updated)}",
             9.sp, alpha = if (problem == null) 0.5f else 0.9f, maxLines = 1, shadow = false,
         )
     }

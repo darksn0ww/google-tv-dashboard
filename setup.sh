@@ -9,6 +9,8 @@
 #
 #   bash setup.sh --tv <ip:port> [--apk my-build.apk] [--config config.json]
 #   bash setup.sh --tv <ip:port> --enable-only      only switch the Home button back on
+#   bash setup.sh --tv <ip:port> --config config.json --pull-favourites
+#                                                   only copy favourites from the TV into the file
 set -u
 
 REPO=darksn0ww/google-tv-dashboard
@@ -488,7 +490,35 @@ screensaver() {
 start_app() { tv am start -n $PKG/.MainActivity >/dev/null; }
 bound() { tv dumpsys accessibility | grep -q 'label=Home button override'; }
 
+# The part between the brackets of "key": [ ... ] in JSON with its spaces removed.
+array_of() { printf '%s' "$1" | sed -n "s/.*\"$2\":\[\([^]]*\)\].*/\1/p"; }
+
+# Writes favourites rearranged on the TV back into a settings file, unless the file's own list
+# has been changed since: then the file wins, as it does on the TV.
+pull_favourites() { # config file
+  local saved base list mine updated
+  saved=$(tv cat /sdcard/Android/data/$PKG/files/favourites.json | tr -d '\n\r') # written without spaces
+  case $saved in *'"list":['*) ;; *) return 0 ;; esac
+  base=$(array_of "$saved" config)
+  list=$(array_of "$saved" list)
+  mine=$(array_of "$(tr -d ' \n\r\t' <"$1")" favourites)
+  [ "$mine" = "$base" ] && [ "$list" != "$base" ] || return 0
+  # It comes from the TV, so accept package names and nothing else.
+  printf '%s\n' "$list" | grep -Eq '^("[A-Za-z0-9_.]+"(,"[A-Za-z0-9_.]+")*)?$' || return 0
+  updated=$(awk -v list="$list" '
+    { text = text $0 "\n" }
+    END {
+      if (match(text, /"favourites"[ \t\n]*:[ \t\n]*\[[^]]*\]/))
+        text = substr(text, 1, RSTART - 1) "\"favourites\": [" list "]" substr(text, RSTART + RLENGTH)
+      else if (match(text, /\{/))
+        text = substr(text, 1, RSTART) "\n  \"favourites\": [" list "]," substr(text, RSTART + 1)
+      printf "%s", text
+    }' "$1")
+  printf '%s\n' "$updated" >"$1" && say "  Copied your favourites from the TV into $1"
+}
+
 push_config() {
+  pull_favourites "$1"
   local dest=/sdcard/Android/data/$PKG/files
   tv mkdir -p $dest >/dev/null
   if grep -q '"wallpaper": *"file"' "$1"; then
@@ -554,11 +584,15 @@ restart_listener() {
   tv cmd notification allow_listener $LISTENER >/dev/null
 }
 
-unattended() { # apk config enable-only
+unattended() { # apk config enable-only pull-only
   local apk=$1
   find_adb
   adb_ connect "$SERIAL" >/dev/null
   [ "$(adb_ -s "$SERIAL" get-state | tr -d '\r')" = device ] || die "Can't connect to $SERIAL. Run without --tv to pair."
+  if [ -n "$4" ]; then
+    pull_favourites "$2"
+    return
+  fi
   if [ -z "$3" ]; then
     [ -n "$apk" ] || fetch_apk
     install_app "$apk"
@@ -571,8 +605,8 @@ unattended() { # apk config enable-only
 }
 
 main() {
-  local apk="" config="" tv_address="" enable_only=""
-  local usage="usage: setup.sh [--apk file.apk] [--config config.json] [--tv ip:port [--enable-only]]"
+  local apk="" config="" tv_address="" enable_only="" pull_only=""
+  local usage="usage: setup.sh [--apk file.apk] [--config config.json] [--tv ip:port [--enable-only | --pull-favourites]]"
   while [ $# -gt 0 ]; do
     case $1 in
       --apk | --config | --tv)
@@ -580,18 +614,20 @@ main() {
         case $1 in --apk) apk=$2 ;; --config) config=$2 ;; --tv) tv_address=$2 ;; esac
         shift 2 ;;
       --enable-only) enable_only=1; shift ;;
+      --pull-favourites) pull_only=1; shift ;;
       *) die "$usage" ;;
     esac
   done
   [ -z "$apk" ] || [ -f "$apk" ] || die "No such file: $apk"
   [ -z "$config" ] || [ -f "$config" ] || die "No such file: $config"
   [ -z "$enable_only" ] || [ -n "$tv_address" ] || die "$usage"
+  [ -z "$pull_only" ] || { [ -n "$tv_address" ] && [ -n "$config" ]; } || die "$usage"
   command -v curl >/dev/null || die "Please install curl first."
 
   if [ -n "$tv_address" ]; then
     AUTO=1
     SERIAL=$tv_address
-    unattended "$apk" "$config" "$enable_only"
+    unattended "$apk" "$config" "$enable_only" "$pull_only"
     return
   fi
 

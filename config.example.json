@@ -12,6 +12,7 @@
   "snapshotSeconds": 15,
   "favourites": ["com.plexapp.android", "com.google.android.youtube.tv"],
   "hidden": [],
+  "updateCheck": true,
   "tado": false,
   "tadoZone": "",
   "nest": {"projectId": "", "clientId": "", "clientSecret": "", "refreshToken": "", "room": ""},

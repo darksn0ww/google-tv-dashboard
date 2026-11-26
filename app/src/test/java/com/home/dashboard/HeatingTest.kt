@@ -66,6 +66,8 @@ class HeatingTest {
             parseEntity(entity("climate.room", "heat", """{"hvac_modes":["off","heat"],"temperature":$target}""")), null, null, "",
         )
         assertFalse(local(19.0).manual)
+        assertTrue(local(19.0).onChangeOnly)
+        assertFalse(manual.onChangeOnly)
         assertEquals(16.0, local(19.0).withSchedule(week, false, at("07:00")).nextTarget!!, 0.0) // on schedule
         assertEquals(16.0, local(16.0).withSchedule(week, false, at("21:30")).nextTarget!!, 0.0) // heading there early
         assertNull(local(23.0).withSchedule(week, false, at("07:00")).nextAt) // turned up by hand

@@ -58,6 +58,7 @@ data class Config(
     val tadoZone: String = "",
     val favourites: List<String> = emptyList(),
     val hidden: List<String> = emptyList(),
+    val updateCheck: Boolean = true, // look for newer releases once a day
 ) {
     companion object {
         fun load(ctx: Context): Config {
@@ -139,6 +140,7 @@ data class Config(
             tadoZone = j.optString("tadoZone"),
             favourites = j.optJSONArray("favourites").strings(),
             hidden = j.optJSONArray("hidden").strings(),
+            updateCheck = j.optBoolean("updateCheck", true),
         )
     }
 }

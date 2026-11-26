@@ -380,7 +380,30 @@
     function Start-App { Tv am start -n "$Pkg/.MainActivity" | Out-Null }
     function Test-Bound { (Tv dumpsys accessibility) -match 'label=Home button override' }
 
+    # Writes favourites rearranged on the TV back into a settings file, unless the file's own list
+    # has been changed since: then the file wins, as it does on the TV.
+    function Get-Favourites($path) {
+        $saved = (Tv cat "/sdcard/Android/data/$Pkg/files/favourites.json") -replace '[\r\n]', '' # written without spaces
+        if ($saved -notmatch '"list":\[([^\]]*)\]') { return }
+        $list = $Matches[1]
+        if ($saved -notmatch '"config":\[([^\]]*)\]') { return }
+        $base = $Matches[1]
+        $full = (Resolve-Path -LiteralPath $path).ProviderPath
+        $text = [IO.File]::ReadAllText($full)
+        $mine = if (($text -replace '\s', '') -match '"favourites":\[([^\]]*)\]') { $Matches[1] } else { '' }
+        if ($mine -cne $base -or $list -ceq $base) { return }
+        # It comes from the TV, so accept package names and nothing else.
+        if ($list -notmatch '^("[A-Za-z0-9_.]+"(,"[A-Za-z0-9_.]+")*)?$') { return }
+        $new = '"favourites": [' + $list + ']'
+        $pattern = [regex]'"favourites"\s*:\s*\[[^\]]*\]'
+        $text = if ($pattern.IsMatch($text)) { $pattern.Replace($text, $new, 1) }
+                else { ([regex]'\{').Replace($text, "{`n  $new,", 1) }
+        [IO.File]::WriteAllText($full, $text, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Host "  Copied your favourites from the TV into $path"
+    }
+
     function Send-Config($path) {
+        Get-Favourites $path
         $dest = "/sdcard/Android/data/$Pkg/files"
         Tv mkdir -p $dest | Out-Null
         if ((Get-Content -Raw -LiteralPath $path | ConvertFrom-Json).wallpaper -eq 'file') {

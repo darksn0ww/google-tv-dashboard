@@ -32,6 +32,7 @@ camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) b
 - **Continue watching:** what you recently played on this device
 - **Ambient mode:** select the clock to start Google's screensaver
 - **Home button:** opens the dashboard instead of the Google TV home screen
+- **Update notice:** says when a newer release is out; it installs nothing
 
 Used on a Google TV Streamer and a TCL Google TV, both Android 14.
 
@@ -82,7 +83,7 @@ the list of installed apps, the previous version of the dashboard, and your `con
 
 **That folder can contain your tokens and private links.** Don't share or sync it (Windows doesn't
 restrict who on the PC can read it), and delete backups you no longer need. What can't be saved is data inside the app, such as "Continue watching"
-and favourites rearranged on the TV.
+and your favourites (see below).
 
 To back up by hand before installing:
 
@@ -159,6 +160,7 @@ settings and says so on screen. [config.example.json](config.example.json) shows
 | `cameras` | `name`, `url` (low quality, for tiles) and optional `hd` (full screen) |
 | `snapshotSeconds` | How often camera stills refresh (default 15) |
 | `favourites`, `hidden` | Package names to pin or hide |
+| `updateCheck` | `false` stops the daily check for a newer release (on by default) |
 | `homeAssistant` | Heating and the smart home panel through [Home Assistant](#heating-from-home-assistant) |
 | `tado`, `tadoZone` | Or ask [tado](#heating-straight-from-tado) directly, and which room |
 | `nest` | Or ask [Google Nest](#google-nest-thermostat-experimental) directly; written by the setup script |
@@ -166,6 +168,15 @@ settings and says so on screen. [config.example.json](config.example.json) shows
 **Cameras:** UniFi Protect links (`rtsps://…:7441/…?enableSrtp`) are converted to Protect's plain
 RTSP port 7447, so that video is unencrypted on your local network. Other links are used exactly
 as written; the player supports `rtsp://` (including `user:password@`), not `rtsps://`.
+
+### Favourites changed on the TV
+
+When you rearrange favourites with hold-OK, the setup scripts copy the new list back into your
+`config.json` the next time they install that file. To do only that, on macOS or Linux:
+
+    bash setup.sh --tv <tv-ip:port> --config config.json --pull-favourites
+
+If you have edited `favourites` in the file since changing them on the TV, the file wins.
 
 ## Choosing where heating comes from
 
@@ -301,6 +312,13 @@ You need your own credentials:
 
 See Google's [authorisation guide](https://developers.google.com/nest/device-access/authorize).
 The secret and token are stored in `config.json` and the app's private storage: keep them private.
+
+## Updates
+
+Once a day the dashboard asks GitHub which release is latest, and shows a notice above the
+widgets if it's newer than the one installed. Nothing is downloaded or installed: run the
+[setup script](#quick-setup) to update. GitHub sees your public IP address, as with any visit;
+set `"updateCheck": false` to turn this off.
 
 ## Permissions
 

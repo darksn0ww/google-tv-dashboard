@@ -22,6 +22,7 @@ data class Heating(
     val auto: Boolean = false, // on, but the thermostat names no target
     val min: Double = 5.0, // the thermostat's range, for the dial
     val max: Double = 25.0,
+    val onChangeOnly: Boolean = false, // [updated] only moves when a value does (HomeKit)
     val nextAt: Long? = null, // next scheduled change, epoch millis
     val nextTarget: Double? = null,
 )
@@ -94,6 +95,7 @@ fun heatingFrom(climate: HaEntity, temperature: HaEntity?, humidity: HaEntity?, 
         auto = !off && target == null,
         min = min,
         max = (climate.number("max_temp") ?: 25.0).coerceAtLeast(min + 1),
+        onChangeOnly = !climate.has("auto"),
     )
 }
 
@@ -136,7 +138,7 @@ fun Heating.toJson(): JSONObject = JSONObject()
     .put("zone", zone).put("current", current).put("target", target).put("manual", manual).put("updated", updated)
     .put("humidity", humidity).put("active", active).put("away", away).put("nextAt", nextAt).put("nextTarget", nextTarget)
     .put("upperTarget", upperTarget).put("boost", boost).put("cooling", cooling).put("auto", auto)
-    .put("min", min).put("max", max)
+    .put("min", min).put("max", max).put("onChangeOnly", onChangeOnly)
 
 fun heatingFromJson(j: JSONObject): Heating {
     fun d(k: String) = if (j.has(k)) j.getDouble(k) else null
@@ -146,6 +148,7 @@ fun heatingFromJson(j: JSONObject): Heating {
         away = j.optBoolean("away"), nextAt = if (j.has("nextAt")) j.getLong("nextAt") else null,
         nextTarget = d("nextTarget"), upperTarget = d("upperTarget"), boost = j.optBoolean("boost"),
         cooling = j.optBoolean("cooling"), auto = j.optBoolean("auto"), min = d("min") ?: 5.0, max = d("max") ?: 25.0,
+        onChangeOnly = j.optBoolean("onChangeOnly"),
     )
 }
 

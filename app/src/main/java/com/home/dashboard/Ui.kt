@@ -144,6 +144,15 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         }
     }
 
+    val update by produceState<String?>(null, config.loaded, config.updateCheck) {
+        value = null
+        if (!config.loaded || !config.updateCheck) return@produceState
+        while (true) {
+            value = withContext(Dispatchers.IO) { Updates.check(ctx) }
+            delay(60 * 60_000L) // check() itself asks GitHub only once a day
+        }
+    }
+
     val apps by produceState(AppsData(), resumeTick, config) {
         if (config.loaded) value = withContext(Dispatchers.IO) { Apps.load(ctx) }
     }
@@ -313,6 +322,14 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                 if (it.hasFocus) scope.launch { delay(150); listState.animateScrollToItem(0) }
                             },
                         ) {
+                            update?.let {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 48.dp)
+                                        .background(Color(0xE61C1C1E), RoundedCornerShape(10.dp)).padding(10.dp, 2.dp),
+                                ) {
+                                    Txt("Update available: $it  ·  run the setup script", 11.sp, FontWeight.SemiBold, shadow = false)
+                                }
+                            }
                             Header(
                                 weather, events, config.place.ifBlank { foundPlace }, heating,
                                 onLink = { scope.launch { tado?.link() } },
