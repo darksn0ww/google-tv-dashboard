@@ -2,9 +2,15 @@
 
 A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV.
 
-![The home screen, shown with demo data](docs/images/home.png)
+![Home screen with clock, weather, heating, calendar, favourite apps and cameras](docs/images/home.png)
 
-*Demo data. The calendar entries and heating readings are made up; [demo settings](docs/demo-config.json).*
+| Smart home panel | Plain calendar and your own wallpaper |
+| --- | --- |
+| ![Panel with heating, vacuum controls, map and lights](docs/images/panel.png) | ![Home screen with a month calendar](docs/images/month.png) |
+
+*Demo data throughout: the calendar entries, readings, floor plan and devices are made up, and the
+camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) by Alexandra and
+Luca Bravo (wallpapers), and Marius Christensen, Pix Tresa, Giorgio Trovato and Alex Suprun (cameras).*
 
 ## Features
 
