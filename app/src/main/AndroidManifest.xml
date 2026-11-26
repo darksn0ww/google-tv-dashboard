@@ -16,7 +16,10 @@
         android:label="@string/app_name"
         android:icon="@drawable/ic_launcher"
         android:banner="@drawable/banner"
-        android:theme="@style/Theme.Dashboard">
+        android:theme="@style/Theme.Dashboard"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/no_backup"
+        android:usesCleartextTraffic="true"><!-- Home Assistant and cameras on the local network -->
 
         <activity
             android:name=".MainActivity"

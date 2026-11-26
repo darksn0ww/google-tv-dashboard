@@ -8,10 +8,11 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 
 ## Features
 
-- **Widgets:** clock, weather with a 5-day forecast, [tado°](https://www.tado.com) or
-  [Google Nest](#google-nest-thermostat-experimental) heating and a merged calendar from any number of iCal / webcal links
+- **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant)
+  or [Google Nest](#google-nest-thermostat-experimental) and a merged calendar from any number of iCal / webcal links
 - **Wallpaper:** random photos from Unsplash
 - **Apps:** a favourites row, every other app, and physical inputs on TVs that have them
+- **Smart home panel:** vacuum, plugs and lights through Home Assistant
 - **Cameras:** UniFi Protect (or any RTSP) stills on the home screen, live video full screen
 - **Continue watching:** what you recently played on this device
 - **Ambient mode:** select the clock to start Google's screensaver
@@ -19,7 +20,30 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 
 Used on a Google TV Streamer and a TCL Google TV, both Android 14.
 
-## Install a release (no build tools needed)
+## Quick setup
+
+One command. It needs nothing installed first.
+
+**macOS or Linux** (Terminal):
+
+    curl -fsSL https://raw.githubusercontent.com/darksn0ww/google-tv-dashboard/main/setup.sh | bash
+
+**Windows** (PowerShell):
+
+    irm https://raw.githubusercontent.com/darksn0ww/google-tv-dashboard/main/setup.ps1 | iex
+
+It walks you through turning on Wireless debugging, asks for the TV's IP address, ports and
+pairing code, builds your `config.json` (saved in the folder you run it from) from questions,
+installs the latest release and switches it on. If `adb` is missing it offers to download it
+from Google. Run it again to update.
+
+To install your own build or reuse settings: `bash setup.sh --apk my.apk --config config.json`,
+or on Windows set `$env:TVD_APK` and `$env:TVD_CONFIG` first.
+
+Running a script straight from the internet means trusting it: you can download and read
+[setup.sh](setup.sh) or [setup.ps1](setup.ps1) first.
+
+## Install a release by hand
 
 You need [`adb`](https://developer.android.com/tools/releases/platform-tools) on a Mac or Linux computer.
 
@@ -62,27 +86,119 @@ it holds your API key and private links.
 | Key | Meaning |
 | --- | --- |
 | `place`, `latitude`, `longitude` | Weather location |
+| `location` | `"auto"` finds the location from your internet connection instead (via [geojs.io](https://www.geojs.io), which sees your public IP address) |
 | `unsplashKey` | [Unsplash access key](https://unsplash.com/developers); without it you get a plain background |
 | `unsplashQueries`, `wallpaperMinutes` | Photo themes and how often they change |
-| `calendars` | `webcal://` or `https://` .ics links |
+| `calendars` | `webcal://` or `https://` .ics links; without any, the widget shows this month |
 | `cameras` | `name`, `url` (low quality, for tiles) and optional `hd` (full screen) |
 | `snapshotSeconds` | How often camera stills refresh (default 15) |
 | `favourites`, `hidden` | Package names to pin or hide |
-| `tado`, `tadoZone` | Show the heating card, and which room |
-| `nest` | Written by `tools/nest-auth.py`; replaces tado on the heating card |
-
-**Heating:** select the card and approve the code in your browser. Without a tado subscription
-the API allows few requests a day, so readings can be around 30 minutes old.
+| `homeAssistant` | Heating and the smart home panel through [Home Assistant](#heating-from-home-assistant) |
+| `tado`, `tadoZone` | Or ask [tado](#heating-straight-from-tado) directly, and which room |
+| `nest` | Or ask [Google Nest](#google-nest-thermostat-experimental) directly; written by `tools/nest-auth.py` |
 
 **Cameras:** UniFi Protect `rtsps://…:7441` links are converted to Protect's plain RTSP port
 7447, so video is unencrypted on your local network.
+
+## Choosing where heating comes from
+
+| Source | Set | Notes |
+| --- | --- | --- |
+| Home Assistant | `homeAssistant.climate` | Any thermostat it supports; also gives the smart home panel |
+| tado directly | `"tado": true` | No server needed |
+| Nest directly | `nest` | No server needed; experimental |
+
+If more than one is set, Home Assistant wins, then Nest, then tado. Only that one is contacted.
+
+## Heating straight from tado
+
+Set `"tado": true` (and `tadoZone` for a particular room), deploy, then select the heating card
+and approve the code in your browser. Accounts without a subscription get few API requests a
+day, shared by all your devices, so readings can be 30 minutes old or more. Don't run this
+alongside Home Assistant's tado integration unless you have allowance to spare.
+
+## Heating from Home Assistant
+
+The heating card reads a Home Assistant `climate` entity over the
+[REST API](https://developers.home-assistant.io/docs/api/rest/), once a minute while the dashboard
+is on screen. It works with any thermostat Home Assistant supports; it was built against the
+tado° integration.
+
+1. In Home Assistant, add a user for the TV (**Settings > People**) with **Administrator** off.
+2. Sign in as that user, open its profile, and under **Security > Long-lived access tokens**
+   create a token. It is shown once.
+3. Add this to your `config.json`:
+
+       "homeAssistant": {
+         "url": "http://HOME_ASSISTANT_IP:8123",
+         "token": "LONG_LIVED_ACCESS_TOKEN",
+         "climate": "climate.living_room",
+         "temperature": "sensor.living_room_temperature",
+         "humidity": "sensor.living_room_humidity",
+         "name": "Living Room"
+       }
+
+   `url` and `climate` must match your setup (find entity IDs under **Developer tools > States**).
+   `temperature`, `humidity` and `name` are optional.
+4. Deploy with that `config.json`.
+
+If the address, token or climate entity is missing, the card says "Home Assistant not configured".
+If a read fails, it keeps the last values and marks them stale. "Updated" is when Home Assistant
+last heard the value (`last_reported`, or `last_updated` on older versions), not when the TV
+asked.
+
+The token lives only in `config.json` (git-ignored) and the app's private storage; it is not built
+into the APK. Anyone who has it can control your Home Assistant as that user, and over plain
+`http` it crosses your network unencrypted.
+
+### Smart home panel
+
+Add any of these to `homeAssistant` and select the heating card to open a panel with your
+vacuum (start, pause, dock) and on/off buttons for plugs and lights:
+
+    "vacuum": "vacuum.robot",
+    "battery": "sensor.robot_battery",
+    "devices": [{"name": "Lamp", "entity": "light.lamp"}],
+    "maps": ["image.robot_downstairs", "image.robot_upstairs"],
+    "mapSelect": "select.robot_selected_map"
+
+`maps` shows the vacuum's map in the panel (the Roborock integration provides these `image`
+entities). With `mapSelect`, the floor the vacuum has selected is shown. Heating is read-only. The TV only sends commands to the entities listed here, and only
+`light`, `switch`, `fan` and `input_boolean` devices. That is a limit of the app, not of the
+token, which can do whatever its Home Assistant user can.
+
+### Next scheduled change (tado, experimental)
+
+> **Not yet tried against a real tado account.** For tado V2/V3; tado X is not supported.
+
+Home Assistant's tado integration doesn't publish the schedule, so `tools/tado-schedule.py`
+fetches it, at most once every 7 days (a few API calls the first time, then two a week).
+
+1. Copy the script to `/config/tado_schedule/` on Home Assistant.
+2. From a Home Assistant terminal, sign in once:
+   `python3 /config/tado_schedule/tado-schedule.py login`
+3. Add to `configuration.yaml`, then restart:
+
+       command_line:
+         - sensor:
+             name: Tado living room schedule
+             command: "python3 /config/tado_schedule/tado-schedule.py --zone 'Living Room'"
+             value_template: "{{ value_json.fetched }}"
+             json_attributes: [schedule, zone]
+             scan_interval: 3600
+             command_timeout: 30
+
+   The hourly run only reads the script's cache until a week has passed.
+4. Add `"schedule": "sensor.tado_living_room_schedule"` to `homeAssistant` in `config.json`.
+
+After changing your schedule in tado, run the script with `--force` (and the same `--zone`).
+The folder holds a tado sign-in and is included in Home Assistant backups: keep both private.
 
 ## Google Nest thermostat (experimental)
 
 > **Untested on real hardware.** Written from Google's documentation; reports and fixes are welcome.
 
-Shows current temperature, target and eco mode. It is read-only, and Google's API provides no
-schedule, so there is no "next change".
+Shows current temperature, target and eco mode. It is read-only.
 
 You need your own credentials:
 

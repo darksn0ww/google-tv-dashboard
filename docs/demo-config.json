@@ -8,7 +8,5 @@
   "calendars": [],
   "cameras": [],
   "favourites": ["com.plexapp.android", "com.apple.atve.androidtv.appletv", "com.google.android.youtube.tv", "com.google.android.youtube.tvmusic", "com.spotify.tv.android"],
-  "hidden": ["com.ubnt.unifi.protect", "io.privado.android", "com.rma.speedtesttv"],
-  "tado": true,
-  "tadoZone": ""
+  "hidden": ["com.ubnt.unifi.protect", "io.privado.android", "com.rma.speedtesttv"]
 }

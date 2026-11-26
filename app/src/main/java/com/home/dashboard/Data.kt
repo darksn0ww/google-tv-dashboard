@@ -38,12 +38,14 @@ data class Config(
     val unsplashKey: String = "",
     val unsplashQueries: List<String> = listOf("landscape"),
     val wallpaperMinutes: Int = 10,
+    val autoLocation: Boolean = false, // look the location up from the internet connection
     val latitude: Double = 51.5,
     val longitude: Double = -0.12,
     val calendars: List<String> = emptyList(),
     val cameras: List<Camera> = emptyList(),
     val snapshotSeconds: Int = 15,
     val nest: NestConfig? = null,
+    val homeAssistant: HaConfig? = null,
     val tado: Boolean = false,
     val tadoZone: String = "",
     val favourites: List<String> = emptyList(),
@@ -58,7 +60,10 @@ data class Config(
                 if (incoming.exists()) runCatching { incoming.copyTo(f, overwrite = true); incoming.delete() }
             }
             if (!f.exists()) return Config(loaded = true)
-            return runCatching { parse(JSONObject(f.readText())) }.getOrDefault(Config(loaded = true))
+            val config = runCatching { parse(JSONObject(f.readText())) }.getOrDefault(Config(loaded = true))
+            // Heating now comes from Home Assistant: don't keep an unused tado sign-in around.
+            if (!config.homeAssistant?.climate.isNullOrBlank()) File(ctx.filesDir, "tado.json").delete()
+            return config
         }
 
         private fun JSONArray?.strings(): List<String> =
@@ -70,6 +75,7 @@ data class Config(
             unsplashKey = j.optString("unsplashKey"),
             unsplashQueries = j.optJSONArray("unsplashQueries").strings().ifEmpty { listOf("landscape") },
             wallpaperMinutes = j.optInt("wallpaperMinutes", 10).coerceAtLeast(1),
+            autoLocation = j.optString("location") == "auto",
             latitude = j.optDouble("latitude", 51.5),
             longitude = j.optDouble("longitude", -0.12),
             calendars = j.optJSONArray("calendars").strings(),
@@ -82,6 +88,17 @@ data class Config(
                     n.optString("projectId"), n.optString("clientId"), n.optString("clientSecret"),
                     n.optString("refreshToken"), n.optString("room"),
                 ).takeIf { it.projectId.isNotBlank() && it.refreshToken.isNotBlank() }
+            },
+            homeAssistant = j.optJSONObject("homeAssistant")?.let { h ->
+                HaConfig(
+                    h.optString("url"), h.optString("token"), h.optString("climate"),
+                    h.optString("temperature"), h.optString("humidity"), h.optString("name"), h.optString("schedule"),
+                    h.optString("vacuum"), h.optString("battery"),
+                    h.optJSONArray("devices")?.let { a ->
+                        (0 until a.length()).map { val d = a.getJSONObject(it); HaDevice(d.getString("name"), d.getString("entity")) }
+                    }.orEmpty(),
+                    h.optJSONArray("maps").strings(), h.optString("mapSelect"),
+                )
             },
             tado = j.optBoolean("tado"),
             tadoZone = j.optString("tadoZone"),
@@ -164,6 +181,21 @@ fun weatherLabel(code: Int): String = when (code) {
     95 -> "Thunderstorms"
     96, 99 -> "Thunderstorms with hail"
     else -> ""
+}
+
+// ---------- Automatic location (geojs.io, no key) ----------
+
+data class Place(val latitude: Double, val longitude: Double, val name: String)
+
+object Locator {
+    /** Roughly where the internet connection is; the service sees the public IP address. */
+    fun find(): Place = parse(Net.get("https://get.geojs.io/v1/ip/geo.json"))
+
+    fun parse(json: String): Place {
+        val j = JSONObject(json)
+        // The coordinates arrive as strings.
+        return Place(j.getString("latitude").toDouble(), j.getString("longitude").toDouble(), j.optString("city"))
+    }
 }
 
 // ---------- Unsplash ----------

@@ -16,32 +16,13 @@ import java.io.IOException
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
-/** A null temperature means the heating is off. */
-data class Heating(
-    val zone: String,
-    val current: Double?,
-    val target: Double?,
-    val manual: Boolean,
-    val nextAt: Long?, // epoch millis
-    val nextTarget: Double?,
-    val updated: Long,
-    val upperTarget: Double? = null, // Nest heat/cool mode
-    val eco: Boolean = false,
-)
-
-sealed interface TadoState {
-    data object NotLinked : TadoState
-    data class Linking(val url: String, val code: String) : TadoState
-    data class Linked(val heating: Heating?, val problem: String? = null) : TadoState
-}
-
 /**
  * tado API, signed in with the OAuth device flow (the password is only ever typed on tado's site).
  * Accounts without Auto-Assist get very few requests a day, shared by every device, so each
  * refresh is a single call and the interval follows the `ratelimit` response header.
  */
 class Tado(private val ctx: Context) {
-    val state = MutableStateFlow<TadoState>(TadoState.NotLinked)
+    val state = MutableStateFlow<HeatingState>(HeatingState.NotLinked)
 
     private val http = OkHttpClient()
     private val file = File(ctx.filesDir, "tado.json")
@@ -50,7 +31,7 @@ class Tado(private val ctx: Context) {
     private var accessExpires = 0L
 
     init {
-        if (store.optString("refresh").isNotEmpty()) state.value = TadoState.Linked(cached())
+        if (store.optString("refresh").isNotEmpty()) state.value = HeatingState.Reading(cached())
     }
 
     private fun save() {
@@ -73,7 +54,7 @@ class Tado(private val ctx: Context) {
         try {
             val (code, j) = post("$LOGIN/device_authorize", mapOf("client_id" to CLIENT, "scope" to "offline_access"))
             if (code != 200) throw IOException("HTTP $code")
-            state.value = TadoState.Linking(j.getString("verification_uri_complete"), j.getString("user_code"))
+            state.value = HeatingState.Linking(j.getString("verification_uri_complete"), j.getString("user_code"))
             val every = j.optLong("interval", 5).coerceAtLeast(5) * 1000
             val until = System.currentTimeMillis() + j.optLong("expires_in", 300) * 1000
             while (System.currentTimeMillis() < until) {
@@ -88,14 +69,14 @@ class Tado(private val ctx: Context) {
                 )
                 if (status == 200) {
                     keep(token)
-                    state.value = TadoState.Linked(null)
+                    state.value = HeatingState.Reading(null)
                     return@withContext
                 }
                 if (token.optString("error") !in setOf("authorization_pending", "slow_down")) break
             }
-            state.value = TadoState.NotLinked
+            state.value = HeatingState.NotLinked
         } catch (e: IOException) {
-            state.value = TadoState.NotLinked
+            state.value = HeatingState.NotLinked
         }
     }
 
@@ -117,7 +98,7 @@ class Tado(private val ctx: Context) {
             if (status == 200) keep(token)
             else if (token.optString("error") == "invalid_grant") {
                 store = JSONObject(); save()
-                state.value = TadoState.NotLinked
+                state.value = HeatingState.NotLinked
                 throw IOException("Sign-in expired")
             } else throw IOException("HTTP $status")
         }
@@ -164,11 +145,11 @@ class Tado(private val ctx: Context) {
             val heating = if (store.optBoolean("tadoX")) rooms(home, wantedZone) else zones(home, wantedZone)
             store.put("last", toJson(heating))
             save()
-            state.value = TadoState.Linked(heating)
+            state.value = HeatingState.Reading(heating)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             save()
-            if (state.value is TadoState.Linked) state.value = TadoState.Linked(cached(), e.message ?: "Unavailable")
+            if (state.value is HeatingState.Reading) state.value = HeatingState.Reading(cached(), e.message ?: "Unavailable")
         }
     }
 
@@ -238,8 +219,9 @@ class Tado(private val ctx: Context) {
     private fun cached(): Heating? = store.optJSONObject("last")?.let { j ->
         fun d(k: String) = if (j.has(k)) j.getDouble(k) else null
         Heating(
-            j.optString("zone"), d("current"), d("target"), j.optBoolean("manual"),
-            if (j.has("nextAt")) j.getLong("nextAt") else null, d("nextTarget"), j.optLong("updated"),
+            zone = j.optString("zone"), current = d("current"), target = d("target"), manual = j.optBoolean("manual"),
+            updated = j.optLong("updated"),
+            nextAt = if (j.has("nextAt")) j.getLong("nextAt") else null, nextTarget = d("nextTarget"),
         )
     }
 

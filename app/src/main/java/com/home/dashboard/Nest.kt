@@ -17,7 +17,7 @@ data class NestConfig(
 
 /**
  * Read-only Nest thermostat support. EXPERIMENTAL: written from Google's documentation and not yet
- * tried against a real thermostat. The API exposes no schedule, so there is no "next change".
+ * tried against a real thermostat. The API exposes no schedule.
  */
 class Nest(private val cfg: NestConfig) {
     private val http = OkHttpClient()
@@ -82,8 +82,6 @@ fun parseNest(json: String, room: String, now: Long): Heating? {
         current = d.trait("Temperature").number("ambientTemperatureCelsius"),
         target = target,
         manual = false,
-        nextAt = null,
-        nextTarget = null,
         updated = now,
         upperTarget = upper,
         eco = eco,

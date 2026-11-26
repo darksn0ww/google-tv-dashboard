@@ -136,11 +136,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
 import java.util.Locale
+import kotlin.math.roundToInt
 
 // ---------- Look & feel ----------
 
@@ -166,6 +169,7 @@ private val WeekdayFmt = DateTimeFormatter.ofPattern("EEEE", Locale.UK)
 private val DayMonthFmt = DateTimeFormatter.ofPattern("d MMMM", Locale.UK)
 private val ShortDayFmt = DateTimeFormatter.ofPattern("EEE d MMM", Locale.UK)
 private val DowFmt = DateTimeFormatter.ofPattern("EEE", Locale.UK)
+private val MonthFmt = DateTimeFormatter.ofPattern("MMMM", Locale.UK)
 
 @Composable
 fun Txt(
@@ -285,11 +289,20 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         if (c != config) config = c
     }
 
-    val weather by produceState<Weather?>(null, config.loaded, config.latitude, config.longitude) {
+    var foundPlace by remember { mutableStateOf("") }
+    val weather by produceState<Weather?>(null, config.loaded, config.autoLocation, config.latitude, config.longitude) {
         if (!config.loaded) return@produceState
+        var found: Place? = null
         while (true) {
-            runCatching { withContext(Dispatchers.IO) { WeatherApi.fetch(config.latitude, config.longitude) } }
-                .onSuccess { value = it }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    if (config.autoLocation && found == null) found = Locator.find()
+                    WeatherApi.fetch(found?.latitude ?: config.latitude, found?.longitude ?: config.longitude)
+                }
+            }.onSuccess {
+                foundPlace = found?.name.orEmpty()
+                value = it
+            }
             delay(if (value == null) 60_000L else 15 * 60_000L)
         }
     }
@@ -312,31 +325,63 @@ fun Dashboard(homePresses: StateFlow<Int>) {
     }
 
     val photo = rememberWallpaper(config)
-    val tado = remember { Tado(ctx.applicationContext) }
-    val tadoState by tado.state.collectAsState()
-    // A configured Nest takes the heating card; otherwise tado if enabled.
-    val nestState by produceState<TadoState>(TadoState.Linked(null), config.nest, owner) {
+    // Where heating comes from: Home Assistant if it names a thermostat, else Nest, else tado directly.
+    // Only the chosen source is ever polled, and only while on screen.
+    val ha = config.homeAssistant
+    val source = when {
+        !ha?.climate.isNullOrBlank() -> "ha"
+        config.nest != null -> "nest"
+        config.tado -> "tado"
+        ha != null && !ha.connected -> "ha"
+        else -> null
+    }
+    val nestState by produceState<HeatingState>(HeatingState.Reading(null), source, config.nest, owner) {
         val cfg = config.nest ?: return@produceState
+        if (source != "nest") return@produceState
         val nest = Nest(cfg)
         var last: Heating? = null
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) {
                 value = runCatching { withContext(Dispatchers.IO) { nest.read() } }.fold(
-                    { last = it; TadoState.Linked(it) },
-                    { TadoState.Linked(last, it.message ?: "Nest unavailable") },
+                    { last = it; HeatingState.Reading(it) },
+                    { HeatingState.Reading(last, it.message ?: "Nest unavailable") },
                 )
                 delay(5 * 60_000L)
             }
         }
     }
-    val heating: TadoState? = if (config.nest != null) nestState else if (config.tado) tadoState else null
-    // Only while on screen; Tado.refresh itself decides whether a request is due.
-    LaunchedEffect(config.tado, config.nest, config.tadoZone, tadoState is TadoState.Linked, owner) {
-        if (!config.tado || config.nest != null) return@LaunchedEffect
+    val haState by produceState<HeatingState>(HeatingState.Reading(null), source, ha, owner) {
+        if (source != "ha" || ha == null) return@produceState
+        if (!ha.ready) {
+            value = HeatingState.NotConfigured
+            return@produceState
+        }
+        val reader = HaHeating(ha, File(ctx.filesDir, "heating.json"))
+        value = HeatingState.Reading(withContext(Dispatchers.IO) { reader.cached() })
+        owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = withContext(Dispatchers.IO) { reader.read() }
+                delay(60_000L)
+            }
+        }
+    }
+    val tado = remember(source) { if (source == "tado") Tado(ctx.applicationContext) else null }
+    val tadoState = tado?.state?.collectAsState()?.value ?: HeatingState.NotLinked
+    // Tado.refresh itself decides whether a request is due (its API is rationed).
+    LaunchedEffect(tado, config.tadoZone, tadoState is HeatingState.Reading, owner) {
+        if (tado == null) return@LaunchedEffect
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { tado.refresh(config.tadoZone); delay(60_000) }
         }
     }
+    val heating: HeatingState? = when (source) {
+        "ha" -> haState
+        "nest" -> nestState
+        "tado" -> tadoState
+        else -> null
+    }
+    var panelOpen by remember { mutableStateOf(false) }
+    val panel = ha?.takeIf { it.hasPanel }
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { RecentStore.load(ctx) } }
     val recent by RecentStore.items.collectAsState()
     val cams = config.cameras
@@ -355,6 +400,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
     LaunchedEffect(homeCount, hasFavs) {
         fullCam = null
         lastCam = -1
+        panelOpen = false
         if (hasFavs) {
             listState.scrollToItem(0)
             delay(80)
@@ -374,6 +420,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides bringSpec) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             WallpaperLayer(photo)
+            if (panelOpen && panel != null) SmartHomePanel(panel, heating) { panelOpen = false }
             val fc = fullCam
             if (fc != null && fc in cams.indices) {
                 FullCamera(cams, fc, onChange = { fullCam = it; lastCam = it }, onClose = { fullCam = null })
@@ -389,7 +436,12 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                 if (it.hasFocus) scope.launch { delay(150); listState.animateScrollToItem(0) }
                             },
                         ) {
-                            Header(weather, events, config.place, heating) { scope.launch { tado.link() } }
+                            Header(
+                                weather, events, config.place.ifBlank { foundPlace }, heating,
+                                onLink = { scope.launch { tado?.link() } },
+                                onPanel = if (panel != null) ({ panelOpen = true }) else null,
+                                hasCalendars = config.calendars.isNotEmpty(),
+                            )
                         }
                     }
                     if (hasFavs) item(key = "fav") {
@@ -538,7 +590,10 @@ fun WidgetCard(modifier: Modifier, background: Brush? = null, content: @Composab
 }
 
 @Composable
-fun Header(weather: Weather?, events: List<CalEvent>, place: String, heating: TadoState?, onLink: () -> Unit) {
+fun Header(
+    weather: Weather?, events: List<CalEvent>, place: String, heating: HeatingState?,
+    onLink: () -> Unit, onPanel: (() -> Unit)?, hasCalendars: Boolean,
+) {
     val now by produceState(LocalDateTime.now()) {
         while (true) {
             val t = LocalDateTime.now()
@@ -551,9 +606,20 @@ fun Header(weather: Weather?, events: List<CalEvent>, place: String, heating: Ta
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ClockCard(now, Modifier.width(160.dp).fillMaxHeight())
-        WeatherCard(weather, place, Modifier.width(if (heating != null) 292.dp else 372.dp).fillMaxHeight())
-        if (heating != null) HeatingCard(heating, onLink, Modifier.width(166.dp).fillMaxHeight())
-        CalendarCard(events, now.toLocalDate(), Modifier.weight(1f).fillMaxHeight())
+        val third = heating != null || onPanel != null
+        WeatherCard(weather, place, Modifier.width(if (third) 292.dp else 372.dp).fillMaxHeight())
+        val side = Modifier.width(166.dp).fillMaxHeight()
+        if (heating != null) {
+            HeatingCard(heating, onLink, onPanel, side)
+        } else if (onPanel != null) {
+            ButtonCard(onPanel, side) {
+                Txt("SMART HOME", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+                Spacer(Modifier.height(10.dp))
+                Txt("Open controls", 20.sp, FontWeight.SemiBold, shadow = false)
+            }
+        }
+        val rest = Modifier.weight(1f).fillMaxHeight()
+        if (hasCalendars) CalendarCard(events, now.toLocalDate(), rest) else MonthCard(now.toLocalDate(), rest)
     }
 }
 
@@ -631,67 +697,121 @@ fun WeatherCard(w: Weather?, place: String, modifier: Modifier) =
         }
     }
 
-private fun deg(t: Double?): String =
+internal fun deg(t: Double?): String =
     if (t == null) "Off" else String.format(Locale.UK, "%.1f", t).removeSuffix(".0") + "°"
 
-private fun clockTime(millis: Long) =
-    java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).format(HHmm)
+/** The time of day, with the weekday once it isn't today. */
+private fun readingTime(millis: Long): String {
+    val at = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault())
+    val time = at.format(HHmm)
+    return if (at.toLocalDate() == LocalDate.now()) time else "${at.format(DowFmt)} $time"
+}
 
+/** A widget you can select. */
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun HeatingCard(state: TadoState, onLink: () -> Unit, modifier: Modifier) {
-    if (state is TadoState.NotLinked) {
-        // The only focusable widget, and only until it's linked.
-        Surface(
-            onClick = onLink,
-            modifier = modifier,
-            shape = ClickableSurfaceDefaults.shape(CardShape),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = Color(0xE61C1C1E), focusedContainerColor = Color(0xFF3A3A3C),
-                contentColor = Color.White, focusedContentColor = Color.White,
-            ),
-        ) {
-            Column(Modifier.padding(17.dp)) {
-                Txt("HEATING", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
-                Spacer(Modifier.height(10.dp))
-                Txt("Link Tado", 20.sp, FontWeight.SemiBold, shadow = false)
-                Spacer(Modifier.height(6.dp))
-                Txt("Select to get a sign-in code", 12.sp, alpha = 0.7f, shadow = false)
-            }
-        }
-        return
-    }
-    WidgetCard(modifier) {
-        when (state) {
-            is TadoState.Linking -> {
-                Txt("ON YOUR PHONE", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
-                Spacer(Modifier.height(6.dp))
-                Txt("login.tado.com/oauth2/device", 11.sp, FontWeight.Medium, shadow = false)
-                Spacer(Modifier.height(14.dp))
-                Txt("Code", 12.sp, alpha = 0.7f, shadow = false)
-                Txt(state.code, 22.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
-            }
-            is TadoState.Linked -> {
-                val h = state.heating
-                Txt((h?.zone ?: "Heating").uppercase(), 11.sp, FontWeight.SemiBold, alpha = 0.6f, maxLines = 1, shadow = false)
-                if (h == null) {
-                    Txt(state.problem ?: "Loading…", 13.sp, alpha = 0.7f, shadow = false)
-                } else {
-                    Txt(deg(h.current).takeIf { h.current != null } ?: "--°", 38.sp, FontWeight.Medium, lineHeight = 42.sp, shadow = false)
-                    val range = h.upperTarget?.let { "–${deg(it)}" }.orEmpty()
-                    val note = if (h.eco) " · eco" else if (h.manual) " · manual" else ""
-                    Txt("Set to ${deg(h.target)}$range$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
-                    Spacer(Modifier.weight(1f))
-                    h.nextAt?.let {
-                        Txt("NEXT ${clockTime(it)}", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
-                        Txt("→ ${deg(h.nextTarget)}", 18.sp, FontWeight.SemiBold, shadow = false)
-                    }
-                    Txt(state.problem ?: "Updated ${clockTime(h.updated)}", 9.sp, alpha = 0.5f, maxLines = 1, shadow = false)
-                }
-            }
-            else -> {}
-        }
+fun ButtonCard(onClick: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(CardShape),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xE61C1C1E), focusedContainerColor = Color(0xFF3A3A3C),
+            contentColor = Color.White, focusedContentColor = Color.White,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)), shape = CardShape),
+            focusedBorder = Border(BorderStroke(2.dp, Color.White.copy(alpha = 0.7f)), shape = CardShape),
+        ),
+    ) {
+        Column(Modifier.fillMaxSize().padding(17.dp), content = content)
     }
 }
+
+@Composable
+fun HeatingCard(state: HeatingState, onLink: () -> Unit, onPanel: (() -> Unit)?, modifier: Modifier) {
+    when {
+        state is HeatingState.NotLinked -> ButtonCard(onLink, modifier) {
+            Txt("HEATING", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+            Spacer(Modifier.height(10.dp))
+            Txt("Link Tado", 20.sp, FontWeight.SemiBold, shadow = false)
+            Spacer(Modifier.height(6.dp))
+            Txt("Select to get a sign-in code", 12.sp, alpha = 0.7f, shadow = false)
+        }
+        state is HeatingState.Linking -> WidgetCard(modifier) {
+            Txt("ON YOUR PHONE", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+            Spacer(Modifier.height(6.dp))
+            Txt("login.tado.com/oauth2/device", 11.sp, FontWeight.Medium, shadow = false)
+            Spacer(Modifier.height(14.dp))
+            Txt("Code", 12.sp, alpha = 0.7f, shadow = false)
+            Txt(state.code, 22.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+        }
+        onPanel != null -> ButtonCard(onPanel, modifier) { HeatingContent(state) }
+        else -> WidgetCard(modifier) { HeatingContent(state) }
+    }
+}
+
+@Composable
+private fun ColumnScope.HeatingContent(state: HeatingState) {
+        if (state !is HeatingState.Reading) {
+            Txt("HEATING", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+            Spacer(Modifier.height(10.dp))
+            Txt("Home Assistant not configured", 17.sp, FontWeight.SemiBold, lineHeight = 21.sp, shadow = false)
+            Spacer(Modifier.height(6.dp))
+            Txt("Set homeAssistant in config.json", 12.sp, alpha = 0.7f, shadow = false)
+            return
+        }
+        val h = state.heating
+        Txt((h?.zone ?: "Heating").uppercase(), 11.sp, FontWeight.SemiBold, alpha = 0.6f, maxLines = 1, shadow = false)
+        if (h == null) {
+            Txt(state.problem?.replaceFirstChar { it.uppercase() } ?: "Loading…", 13.sp, alpha = 0.7f, shadow = false)
+            return
+        }
+        Txt(deg(h.current).takeIf { h.current != null } ?: "--°", 38.sp, FontWeight.Medium, lineHeight = 42.sp, shadow = false)
+        val range = h.upperTarget?.let { "–${deg(it)}" }.orEmpty()
+        val note = if (h.away) " · away" else if (h.eco) " · eco" else if (h.manual) " · manual" else ""
+        Txt("Set to ${deg(h.target)}$range$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+        Spacer(Modifier.weight(1f))
+        h.nextAt?.let {
+            Txt("Next ${readingTime(it)} → ${deg(h.nextTarget)}", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+        }
+        val humidity = h.humidity?.let { "${it.roundToInt()}%" }
+        if (h.active) {
+            Txt(listOfNotNull("Heating", humidity?.let { "$it RH" }).joinToString(" · "), 12.sp, FontWeight.SemiBold, color = Color(0xFFFF9F0A), maxLines = 1, shadow = false)
+        } else if (humidity != null) {
+            Txt("Humidity $humidity", 12.sp, FontWeight.Medium, alpha = 0.7f, maxLines = 1, shadow = false)
+        }
+        Spacer(Modifier.height(4.dp))
+        val problem = state.problem
+        Txt(
+            if (problem == null) "Updated ${readingTime(h.updated)}" else "Stale ${readingTime(h.updated)} · $problem",
+            9.sp, alpha = if (problem == null) 0.5f else 0.9f, maxLines = 1, shadow = false,
+        )
+    }
+
+@Composable
+fun MonthCard(today: LocalDate, modifier: Modifier) =
+    WidgetCard(modifier) {
+        Txt(today.format(MonthFmt).uppercase(), 11.sp, FontWeight.SemiBold, color = IosRed, maxLines = 1, shadow = false)
+        val start = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+        val first = today.withDayOfMonth(1)
+        val blanks = (first.dayOfWeek.value - start.value + 7) % 7
+        val cells = List(blanks) { 0 } + (1..today.lengthOfMonth()).toList()
+        @Composable
+        fun week(days: List<Any>) = Row(Modifier.fillMaxWidth().height(17.dp)) {
+            repeat(7) { i ->
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    val day = days.getOrNull(i)
+                    if (day == today.dayOfMonth) Box(Modifier.size(17.dp).background(IosRed, CircleShape))
+                    if (day is String) Txt(day, 9.sp, FontWeight.SemiBold, alpha = 0.5f, shadow = false)
+                    else if (day is Int && day > 0) Txt(day.toString(), 10.sp, FontWeight.SemiBold, shadow = false)
+                }
+            }
+        }
+        week((0L..6L).map { start.plus(it).getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()) })
+        cells.chunked(7).forEach { week(it) }
+    }
 
 @Composable
 fun CalendarCard(events: List<CalEvent>, today: LocalDate, modifier: Modifier) =

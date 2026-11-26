@@ -9,6 +9,17 @@
   "cameras": [{"name": "Front", "url": "rtsps://PROTECT_IP:7441/LOW_STREAM_ID?enableSrtp", "hd": "rtsps://PROTECT_IP:7441/HIGH_STREAM_ID?enableSrtp"}],
   "favourites": ["com.plexapp.android", "com.google.android.youtube.tv"],
   "hidden": [],
-  "tado": true,
-  "tadoZone": ""
+  "homeAssistant": {
+    "url": "http://HOME_ASSISTANT_IP:8123",
+    "token": "LONG_LIVED_ACCESS_TOKEN",
+    "climate": "climate.living_room",
+    "temperature": "sensor.living_room_temperature",
+    "humidity": "sensor.living_room_humidity",
+    "name": "Living Room",
+    "vacuum": "vacuum.robot",
+    "battery": "sensor.robot_battery",
+    "devices": [{"name": "Lamp", "entity": "light.lamp"}],
+    "maps": ["image.robot_downstairs"],
+    "mapSelect": "select.robot_selected_map"
+  }
 }
