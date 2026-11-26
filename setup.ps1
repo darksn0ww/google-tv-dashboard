@@ -153,6 +153,26 @@
         }
     }
 
+    function Set-Wallpaper($config, $folder) {
+        Write-Host "`nWallpaper`n  1. Random photos from Unsplash (needs a free access key)`n  2. Your own picture: a file on this computer, or a web link`n  3. Plain background"
+        switch (Ask 'Which?' '1') {
+            '1' { $v = Secret '  Unsplash access key (blank for a plain background)'; if ($v) { $config.unsplashKey = $v } }
+            '2' {
+                while ($true) {
+                    $v = (Ask '  File path or https:// link (blank to skip)').Trim([char[]]"`"' ")
+                    if (-not $v) { return }
+                    if ($v -match '^https?://') { $config.wallpaper = $v; return }
+                    if ($v -notmatch '\.(jpe?g|png|webp)$') { Write-Host '  Use a .jpg, .png or .webp picture.'; continue }
+                    if (Test-Path -LiteralPath $v -PathType Leaf) {
+                        Copy-Item -LiteralPath $v -Destination (Join-Path $folder 'wallpaper.img') -Force
+                        $config.wallpaper = 'file'; return
+                    }
+                    Write-Host "  Can't find that file."
+                }
+            }
+        }
+    }
+
     # Numbered menu of entity IDs; returns the chosen ones.
     function Pick($title, $ids, [switch]$Several) {
         $ids = @($ids | Where-Object { $_ })
@@ -223,8 +243,7 @@
         Step 'Settings (leave anything blank to skip it)'
         $config = [ordered]@{}
         Set-Location-Settings $config
-        $v = Secret 'Unsplash access key for wallpapers'
-        if ($v) { $config.unsplashKey = $v }
+        Set-Wallpaper $config (Split-Path -Parent $path)
         Write-Host "`nCalendar widget`n  1. A plain calendar showing this month`n  2. Upcoming events from your web calendars"
         $calendars = @()
         if ((Ask 'Which?' '1') -eq '2') {
@@ -261,6 +280,11 @@
     function Send-Config($path) {
         $dest = "/sdcard/Android/data/$Pkg/files"
         Tv mkdir -p $dest | Out-Null
+        if ((Get-Content -Raw -LiteralPath $path | ConvertFrom-Json).wallpaper -eq 'file') {
+            $picture = Join-Path (Split-Path -Parent $path) 'wallpaper.img'
+            if (Test-Path $picture) { Adb -s $script:Serial push $picture "$dest/wallpaper" | Out-Null }
+            else { Write-Host "  No wallpaper.img next to the settings; keeping what's on the TV." }
+        }
         Adb -s $script:Serial push $path "$dest/config.json" | Out-Null
         Tv am force-stop $Pkg | Out-Null # the app moves the file into private storage when it starts
         Start-Sleep 1

@@ -189,6 +189,37 @@ Weather location
   done
 }
 
+wallpaper() { # folder the settings are saved in
+  local choice v
+  say "
+Wallpaper
+  1. Random photos from Unsplash (needs a free access key)
+  2. Your own picture: a file on this computer, or a web link
+  3. Plain background"
+  choice=$(ask "Which?" 1) || exit 1
+  case $choice in
+    1) v=$(secret "  Unsplash access key (blank for a plain background)") || exit 1
+       [ -n "$v" ] && C=$(add "$C" unsplashKey "$(json "$v")") ;;
+    2) while :; do
+         v=$(ask "  File path or https:// link (blank to skip)") || exit 1
+         [ -n "$v" ] || return 0
+         case $v in http://* | https://*) C=$(add "$C" wallpaper "$(json "$v")"); return 0 ;; esac
+         # Dragging a file onto the terminal adds quotes or backslashes.
+         v=${v%"${v##*[![:space:]]}"}
+         v=${v#[\'\"]}; v=${v%[\'\"]}
+         [ -f "$v" ] || v=$(printf '%s' "$v" | sed 's/\\\(.\)/\1/g')
+         case $v in "~/"*) v=$HOME/${v#??} ;; esac
+         case $v in
+           *.[Jj][Pp][Gg] | *.[Jj][Pp][Ee][Gg] | *.[Pp][Nn][Gg] | *.[Ww][Ee][Bb][Pp]) ;;
+           *) say "  Use a .jpg, .png or .webp picture."; continue ;;
+         esac
+         if [ -f "$v" ] && cp "$v" "$1/wallpaper.img"; then C=$(add "$C" wallpaper '"file"'); return 0; fi
+         say "  Can't read that file."
+       done ;;
+  esac
+  return 0
+}
+
 # Numbered menu of entity IDs; prints the chosen ones, one per line.
 pick() { # title ids [several]
   local title=$1 ids=$2 answer n
@@ -295,8 +326,7 @@ create_config() { # path
   C=""
   location
   local v name url hd calendars="" cameras="" camera
-  v=$(secret "Unsplash access key for wallpapers") || exit 1
-  [ -n "$v" ] && C=$(add "$C" unsplashKey "$(json "$v")")
+  wallpaper "$(dirname "$1")"
   say "
 Calendar widget
   1. A plain calendar showing this month
@@ -346,6 +376,12 @@ bound() { tv dumpsys accessibility | grep -q 'label=Home button override'; }
 push_config() {
   local dest=/sdcard/Android/data/$PKG/files
   tv mkdir -p $dest >/dev/null
+  if grep -q '"wallpaper": *"file"' "$1"; then
+    local picture
+    picture=$(dirname "$1")/wallpaper.img
+    if [ -f "$picture" ]; then adb_ -s "$SERIAL" push "$picture" $dest/wallpaper >/dev/null || say "  Couldn't copy the wallpaper."
+    else say "  No wallpaper.img next to the settings; keeping what's on the TV."; fi
+  fi
   adb_ -s "$SERIAL" push "$1" $dest/config.json >/dev/null || die "Couldn't copy the settings to the TV."
   tv am force-stop $PKG >/dev/null # the app moves the file into private storage when it starts
   sleep 1

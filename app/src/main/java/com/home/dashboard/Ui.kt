@@ -11,6 +11,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.media.tv.TvContract
+import android.net.Uri
 import android.view.SurfaceView
 import android.view.TextureView
 import android.os.SystemClock
@@ -501,7 +502,16 @@ fun Dashboard(homePresses: StateFlow<Int>) {
 fun rememberWallpaper(cfg: Config): Photo? {
     val ctx = LocalContext.current
     var current by remember { mutableStateOf<Photo?>(null) }
-    LaunchedEffect(cfg.unsplashKey, cfg.unsplashQueries, cfg.wallpaperMinutes) {
+    LaunchedEffect(cfg.wallpaper, cfg.unsplashKey, cfg.unsplashQueries, cfg.wallpaperMinutes) {
+        if (cfg.wallpaper.isNotBlank()) {
+            // Your own picture wins over Unsplash.
+            val url = if (cfg.wallpaper != "file") cfg.wallpaper
+            else Uri.fromFile(File(ctx.filesDir, "wallpaper")).toString()
+            val own = Photo("own", url, author = "", downloadLocation = "")
+            while (ctx.imageLoader.execute(wallpaperRequest(ctx, own)) !is SuccessResult) delay(60_000)
+            current = own
+            return@LaunchedEffect
+        }
         if (cfg.unsplashKey.isBlank()) return@LaunchedEffect
         val queue = ArrayDeque<Photo>()
         while (true) {
@@ -562,7 +572,7 @@ fun WallpaperLayer(photo: Photo?) {
                 AsyncImage(model = req, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
         }
-        photo?.let {
+        photo?.takeIf { it.author.isNotEmpty() }?.let {
             Txt(
                 "Photo: ${it.author} / Unsplash", 10.sp, alpha = 0.55f,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 10.dp),

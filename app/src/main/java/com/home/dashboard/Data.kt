@@ -36,6 +36,7 @@ data class Config(
     val loaded: Boolean = false,
     val place: String = "",
     val unsplashKey: String = "",
+    val wallpaper: String = "", // your own picture instead: a web link, or "file" for the one installed with the settings
     val unsplashQueries: List<String> = listOf("landscape"),
     val wallpaperMinutes: Int = 10,
     val autoLocation: Boolean = false, // look the location up from the internet connection
@@ -56,8 +57,10 @@ data class Config(
             val f = File(ctx.filesDir, "config.json")
             // deploy.sh drops a new config in the app's external dir; move it into private storage.
             ctx.getExternalFilesDir(null)?.let { dir ->
-                val incoming = File(dir, "config.json")
-                if (incoming.exists()) runCatching { incoming.copyTo(f, overwrite = true); incoming.delete() }
+                listOf("config.json" to f, "wallpaper" to File(ctx.filesDir, "wallpaper")).forEach { (name, target) ->
+                    val incoming = File(dir, name)
+                    if (incoming.exists()) runCatching { incoming.copyTo(target, overwrite = true); incoming.delete() }
+                }
             }
             if (!f.exists()) return Config(loaded = true)
             val config = runCatching { parse(JSONObject(f.readText())) }.getOrDefault(Config(loaded = true))
@@ -73,6 +76,7 @@ data class Config(
             loaded = true,
             place = j.optString("place"),
             unsplashKey = j.optString("unsplashKey"),
+            wallpaper = j.optString("wallpaper"),
             unsplashQueries = j.optJSONArray("unsplashQueries").strings().ifEmpty { listOf("landscape") },
             wallpaperMinutes = j.optInt("wallpaperMinutes", 10).coerceAtLeast(1),
             autoLocation = j.optString("location") == "auto",

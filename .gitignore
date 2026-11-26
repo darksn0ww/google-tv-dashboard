@@ -5,6 +5,7 @@ app/build/
 local.properties
 tado-schedule.json
 tado-schedule.tmp
+wallpaper.img
 config*.json
 !config.example.json
 *.keystore

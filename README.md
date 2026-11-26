@@ -95,6 +95,7 @@ it holds your API key and private links.
 | `location` | `"auto"` finds the location from your internet connection instead (via [geojs.io](https://www.geojs.io), which sees your public IP address) |
 | `unsplashKey` | [Unsplash access key](https://unsplash.com/developers); without it you get a plain background |
 | `unsplashQueries`, `wallpaperMinutes` | Photo themes and how often they change |
+| `wallpaper` | Your own picture instead: a web link, or `"file"` for a `wallpaper.img` next to `config.json` (the setup script handles this) |
 | `calendars` | `webcal://` or `https://` .ics links; without any, the widget shows this month |
 | `cameras` | `name`, `url` (low quality, for tiles) and optional `hd` (full screen) |
 | `snapshotSeconds` | How often camera stills refresh (default 15) |
