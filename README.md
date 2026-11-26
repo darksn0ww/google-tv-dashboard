@@ -150,13 +150,21 @@ it holds your API key and private links.
 
 ## Choosing where heating comes from
 
-| Source | Set | Notes |
-| --- | --- | --- |
-| Home Assistant | `homeAssistant.climate` | HomeKit, Hive and any other thermostat it supports; also gives the smart home panel |
-| tado directly | `"tado": true` | No server needed |
-| Nest directly | `nest` | No server needed; experimental |
+| Source | Set | Needs Home Assistant? | Tried on real hardware? |
+| --- | --- | --- | --- |
+| HomeKit thermostats | `homeAssistant.climate` | Yes, with its **HomeKit Device** integration | With a tado° thermostat only |
+| Hive and other thermostats | `homeAssistant.climate` | Yes | No (covered by tests) |
+| tado° directly | `"tado": true` | No | Earlier versions, not since this was last reworked |
+| Google Nest directly | `nest` | No, but needs your own Google Device Access project (one-off US$5) | No |
 
-If more than one is set, Home Assistant wins, then Nest, then tado. Only that one is contacted.
+The dashboard doesn't speak HomeKit itself: Home Assistant does, and the dashboard reads from
+Home Assistant. Going through Home Assistant also gives the smart home panel.
+
+Direct tado° is subject to tado's limit of 100 API requests a day without a subscription. Each
+refresh uses one request, spread out to fit, so readings are less frequent than through HomeKit.
+
+If more than one source is set, Home Assistant wins, then Nest, then tado°. Only that one is
+contacted.
 
 ## Heating straight from tado
 
