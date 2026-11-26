@@ -18,6 +18,8 @@ data class CalEvent(
     val allDay: Boolean,
     val color: Int,
     val calendar: String,
+    val location: String = "",
+    val notes: String = "",
 )
 
 /** Minimal iCalendar (.ics / webcal) reader with common RRULE support. */
@@ -129,6 +131,8 @@ object Calendars {
             val length = Duration.between(start, end).let { if (it.isNegative) Duration.ZERO else it }
             val title = first(e, "SUMMARY")?.let { unescape(it.value) }?.ifBlank { null } ?: "Busy"
             val uid = first(e, "UID")?.value ?: ""
+            val location = first(e, "LOCATION")?.let { unescape(it.value).trim() }.orEmpty()
+            val notes = first(e, "DESCRIPTION")?.let { unescape(it.value).trim().take(400) }.orEmpty()
             val rrule = first(e, "RRULE")
             val starts = if (rrule == null || first(e, "RECURRENCE-ID") != null) listOf(start) else {
                 val ex = e["EXDATE"].orEmpty().flatMap { p ->
@@ -139,7 +143,9 @@ object Calendars {
             }
             for (s in starts) {
                 val en = s.plus(length)
-                if (en.isAfter(from) && s.isBefore(to)) out += CalEvent(title, s, en, allDay, color, calName)
+                if (en.isAfter(from) && s.isBefore(to)) {
+                    out += CalEvent(title, s, en, allDay, color, calName, location, notes)
+                }
             }
         }
         return out

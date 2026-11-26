@@ -4,20 +4,26 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 
 ![Home screen with clock, weather, heating, calendar, favourite apps and cameras](docs/images/home.png)
 
-| Smart home panel | Plain calendar and your own wallpaper |
+| Weather | Calendar |
 | --- | --- |
-| ![Panel with heating, vacuum controls, map and lights](docs/images/panel.png) | ![Home screen with a month calendar](docs/images/month.png) |
+| ![Hourly and 10-day weather screen](docs/images/weather.png) | ![30-day calendar with event dots and details](docs/images/calendar.png) |
+| **Smart home panel** | **Rearranging favourites** |
+| ![Panel with heating, vacuum controls, map and lights](docs/images/panel.png) | ![Wobbling app tiles with one picked up](docs/images/edit.png) |
 
 *Demo data throughout: the calendar entries, readings, floor plan and devices are made up, and the
-camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) by Alexandra and
-Luca Bravo (wallpapers), and Marius Christensen, Pix Tresa, Giorgio Trovato and Alex Suprun (cameras).*
+camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) by Luca Bravo
+(wallpaper), and Marius Christensen, Pix Tresa, Giorgio Trovato and Alex Suprun (cameras).*
 
 ## Features
 
 - **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant)
   or [Google Nest](#google-nest-thermostat-experimental) and a merged calendar from any number of iCal / webcal links
+- **Weather and calendar screens:** select either widget for hourly and 10-day weather, or the
+  next 30 days with event dots and details
 - **Wallpaper:** random photos from Unsplash
-- **Apps:** a favourites row, every other app, and physical inputs on TVs that have them
+- **Apps:** a favourites row, every other app, and physical inputs on TVs that have them. Hold OK on
+  an app to rearrange: tiles wobble, and you can move, remove and add favourites
+- **Home and Back:** both return to the first favourite
 - **Smart home panel:** vacuum, plugs and lights through Home Assistant
 - **Cameras:** UniFi Protect (or any RTSP) stills on the home screen, live video full screen
 - **Continue watching:** what you recently played on this device
@@ -40,7 +46,8 @@ One command. It needs nothing installed first.
 
 It walks you through turning on Wireless debugging, asks for the TV's IP address, ports and
 pairing code, builds your `config.json` (saved in the folder you run it from) from questions,
-installs the latest release and switches it on. If `adb` is missing it offers to download it
+installs the latest release and switches it on. It can also change when the TV's screensaver
+starts, or turn it off. If `adb` is missing it offers to download it
 from Google. Run it again to update.
 
 To install your own build or reuse settings: `bash setup.sh --apk my.apk --config config.json`,
@@ -48,6 +55,37 @@ or on Windows set `$env:TVD_APK` and `$env:TVD_CONFIG` first.
 
 Running a script straight from the internet means trusting it: you can download and read
 [setup.sh](setup.sh) or [setup.ps1](setup.ps1) first.
+
+## Back up and restore
+
+The setup scripts back up before changing anything, into `tv-dashboard-backup-<date>/` in the
+folder you run them from: the TV settings they touch (as ready-to-run commands in `restore.txt`),
+the list of installed apps, the previous version of the dashboard, and your `config.json`. Keep
+that folder private. What can't be saved is data inside the app, such as "Continue watching"
+and favourites rearranged on the TV.
+
+To back up by hand before installing:
+
+    adb connect <tv-ip:port>
+    adb shell settings get secure enabled_accessibility_services
+    adb shell settings get secure accessibility_enabled
+    adb shell settings get secure enabled_notification_listeners
+    adb shell settings get secure screensaver_enabled
+    adb shell settings get system screen_off_timeout
+    adb shell pm list packages > packages.txt
+    adb shell pm path com.home.dashboard        # if already installed, then:
+    adb pull <the path it printed> previous-app.apk
+
+Note each value, and keep a copy of your `config.json`.
+
+To go back to how the TV was:
+
+    adb uninstall com.home.dashboard
+    adb shell settings put <secure|system> <name> '<old value>'
+    adb shell settings delete <secure|system> <name>     # if the old value was "null"
+
+Uninstalling alone brings back Google TV's home screen. To return to an older dashboard version,
+uninstall, then `adb install previous-app.apk`.
 
 ## Install a release by hand
 

@@ -4,6 +4,14 @@
 package com.home.dashboard
 
 import android.content.Context
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -163,7 +171,7 @@ private val RowInset = 48.dp
 private val TileShape = RoundedCornerShape(14.dp)
 private val CardH = 176.dp
 private val CardShape = RoundedCornerShape(24.dp)
-private val IosRed = Color(0xFFFF453A)
+internal val IosRed = Color(0xFFFF453A)
 
 private val HHmm = DateTimeFormatter.ofPattern("HH:mm", Locale.UK)
 private val WeekdayFmt = DateTimeFormatter.ofPattern("EEEE", Locale.UK)
@@ -314,7 +322,9 @@ fun Dashboard(homePresses: StateFlow<Int>) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     val now = ZonedDateTime.now()
-                    Calendars.fetchAll(config.calendars, now, now.plusDays(14))
+                    // From midnight, so the calendar screen also lists what has already happened today.
+                    val today = now.toLocalDate().atStartOfDay(now.zone)
+                    Calendars.fetchAll(config.calendars, today, today.plusDays(31))
                 }
             }.onSuccess { value = it }
             delay(15 * 60_000L)
@@ -388,24 +398,66 @@ fun Dashboard(homePresses: StateFlow<Int>) {
     val cams = config.cameras
 
     var fullCam by remember { mutableStateOf<Int?>(null) }
-    val feeds = rememberCameraFeeds(cams, config.snapshotSeconds, paused = fullCam != null)
+    var screen by remember { mutableStateOf<String?>(null) } // "weather" or "calendar", opened from its widget
+    var lastScreen by remember { mutableStateOf<String?>(null) }
+    val weatherFocus = remember { FocusRequester() }
+    val calendarFocus = remember { FocusRequester() }
+    val feeds = rememberCameraFeeds(cams, config.snapshotSeconds, paused = fullCam != null || screen != null)
     var lastCam by remember { mutableIntStateOf(-1) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val firstFav = remember { FocusRequester() }
+    val favRow = rememberLazyListState()
+    // Favourites can be rearranged on the TV: hold OK on any app.
+    var favourites by remember(config.favourites) { mutableStateOf(Favourites.load(ctx, config.favourites)) }
+    var editing by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf<String?>(null) } // favourite being moved
+    var focusApp by remember { mutableStateOf<String?>(null) } // tile to focus after the rows change
+    val appFocus = remember { mutableMapOf<String, FocusRequester>() }
+    val allApps = remember(apps) { (apps.favourites + apps.others).associateBy { it.pkg } }
+    val favApps = remember(allApps, favourites) { favourites.mapNotNull { allApps[it] } }
+    val otherApps = remember(allApps, favourites, config.hidden) {
+        allApps.values.filter { it.pkg !in favourites && it.pkg !in config.hidden }.sortedBy { it.label.lowercase() }
+    }
+    fun keepFavourites(list: List<String>) {
+        favourites = list
+        Favourites.save(ctx, config.favourites, list)
+    }
     val camFocus = remember(cams.size) { List(cams.size) { FocusRequester() } }
     val homeCount by homePresses.collectAsState()
-    val hasFavs = apps.favourites.isNotEmpty()
+    val hasFavs = favApps.isNotEmpty()
 
-    // Home button (or first load): back to the top, focus the first favourite.
-    LaunchedEffect(homeCount, hasFavs) {
+    // Back to the top and the first favourite, however far either has been scrolled.
+    suspend fun goHome() {
+        if (!hasFavs) return
+        listState.scrollToItem(0)
+        favRow.scrollToItem(0)
+        delay(80)
+        runCatching { firstFav.requestFocus() }
+    }
+    // Home button (or first load).
+    LaunchedEffect(homeCount, apps) {
+        editing = false
+        held = null
         fullCam = null
         lastCam = -1
         panelOpen = false
-        if (hasFavs) {
-            listState.scrollToItem(0)
-            delay(80)
-            runCatching { firstFav.requestFocus() }
+        screen = null
+        lastScreen = null
+        goHome()
+    }
+    LaunchedEffect(focusApp) {
+        val pkg = focusApp ?: return@LaunchedEffect
+        delay(80)
+        runCatching { appFocus[pkg]?.requestFocus() }
+        focusApp = null
+    }
+    // Returning from the weather or calendar screen: refocus its widget.
+    LaunchedEffect(screen) {
+        if (screen == null && lastScreen != null) {
+            delay(120)
+            runCatching { (if (lastScreen == "weather") weatherFocus else calendarFocus).requestFocus() }
+            lastScreen = null
         }
     }
     // Returning from a full-screen camera: refocus its tile.
@@ -425,7 +477,18 @@ fun Dashboard(homePresses: StateFlow<Int>) {
             val fc = fullCam
             if (fc != null && fc in cams.indices) {
                 FullCamera(cams, fc, onChange = { fullCam = it; lastCam = it }, onClose = { fullCam = null })
+            } else if (screen == "weather" && weather != null) {
+                WeatherScreen(weather!!, config.place.ifBlank { foundPlace }) { screen = null }
+            } else if (screen == "calendar") {
+                CalendarScreen(events) { screen = null }
             } else {
+                // Back leaves editing first; otherwise it does what Home does.
+                BackHandler {
+                    if (editing) {
+                        editing = false
+                        held = null
+                    } else scope.launch { goHome() }
+                }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -442,21 +505,65 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                 onLink = { scope.launch { tado?.link() } },
                                 onPanel = if (panel != null) ({ panelOpen = true }) else null,
                                 hasCalendars = config.calendars.isNotEmpty(),
+                                onWeather = { if (weather != null) { lastScreen = "weather"; screen = "weather" } },
+                                onCalendar = { lastScreen = "calendar"; screen = "calendar" },
+                                weatherModifier = Modifier.focusRequester(weatherFocus),
+                                calendarModifier = Modifier.focusRequester(calendarFocus),
                             )
                         }
                     }
                     if (hasFavs) item(key = "fav") {
                         TileRow(
-                            "Favourites",
+                            when {
+                                held != null -> "Favourites  ·  ◀ ▶ move   ▼ remove   OK to drop"
+                                editing -> "Favourites  ·  OK to pick up   Back when done"
+                                else -> "Favourites"
+                            },
                             Modifier.onFocusChanged {
                                 // Let the focus scroll settle first, then reveal the widgets above.
                                 if (it.hasFocus && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0)) {
                                     scope.launch { delay(150); listState.animateScrollToItem(0) }
                                 }
                             },
+                            favRow,
                         ) {
-                            itemsIndexed(apps.favourites, key = { _, a -> a.pkg }) { i, a ->
-                                AppTile(a, if (i == 0) Modifier.focusRequester(firstFav) else Modifier) { launch(ctx, a.intent) }
+                            itemsIndexed(favApps, key = { _, a -> a.pkg }) { i, a ->
+                                val requester = appFocus.getOrPut(a.pkg) { FocusRequester() }
+                                val moving = held == a.pkg
+                                val keys = Modifier.onPreviewKeyEvent { e ->
+                                    if (!moving) return@onPreviewKeyEvent false
+                                    val step = when (e.key) {
+                                        Key.DirectionLeft -> -1
+                                        Key.DirectionRight -> 1
+                                        Key.DirectionUp, Key.DirectionDown -> 0
+                                        else -> return@onPreviewKeyEvent false
+                                    }
+                                    if (e.type == KeyEventType.KeyDown) {
+                                        val shown = favApps.map { it.pkg }
+                                        val at = shown.indexOf(a.pkg)
+                                        if (e.key == Key.DirectionDown) {
+                                            held = null
+                                            focusApp = shown.getOrNull(at + 1) ?: shown.getOrNull(at - 1)
+                                            keepFavourites(favourites - a.pkg)
+                                        } else if (step != 0) {
+                                            keepFavourites(Favourites.move(favourites, shown, a.pkg, step))
+                                            scope.launch {
+                                                favRow.animateScrollToItem((at + step - 2).coerceAtLeast(0))
+                                                runCatching { requester.requestFocus() }
+                                            }
+                                        }
+                                    }
+                                    true
+                                }
+                                AppTile(
+                                    a,
+                                    (if (i == 0) Modifier.focusRequester(firstFav) else Modifier).focusRequester(requester).then(keys),
+                                    jiggle = if (editing) i else null,
+                                    badge = if (moving) "◀ ▶" else null,
+                                    onLongClick = { editing = true },
+                                ) {
+                                    if (editing) held = if (moving) null else a.pkg else launch(ctx, a.intent)
+                                }
                             }
                         }
                     }
@@ -485,9 +592,23 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                             items(apps.inputs, key = { it.id }) { InputTile(it) { launchInput(ctx, it.id) } }
                         }
                     }
-                    if (apps.others.isNotEmpty()) item(key = "apps") {
-                        TileRow("Apps") {
-                            items(apps.others, key = { it.pkg }) { a -> AppTile(a) { launch(ctx, a.intent) } }
+                    if (otherApps.isNotEmpty()) item(key = "apps") {
+                        TileRow(if (editing) "Apps  ·  OK to add to favourites" else "Apps") {
+                            itemsIndexed(otherApps, key = { _, a -> a.pkg }) { i, a ->
+                                AppTile(
+                                    a,
+                                    Modifier.focusRequester(appFocus.getOrPut(a.pkg) { FocusRequester() }),
+                                    jiggle = if (editing) i else null,
+                                    badge = if (editing) "+" else null,
+                                    onLongClick = { editing = true },
+                                ) {
+                                    if (editing) {
+                                        held = null
+                                        focusApp = otherApps.getOrNull(i + 1)?.pkg ?: otherApps.getOrNull(i - 1)?.pkg ?: a.pkg
+                                        keepFavourites(favourites - a.pkg + a.pkg)
+                                    } else launch(ctx, a.intent)
+                                }
+                            }
                         }
                     }
                 }
@@ -537,7 +658,7 @@ fun rememberWallpaper(cfg: Config): Photo? {
  * once, and it is kept at 720p and opaque.
  */
 private object Scrim : Transformation {
-    override val cacheKey = "scrim-1"
+    override val cacheKey = "scrim-2"
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
         val out = Bitmap.createBitmap(input.width, input.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
@@ -546,8 +667,8 @@ private object Scrim : Transformation {
         val paint = Paint().apply {
             isDither = true
             shader = LinearGradient(
-                0f, 0f, 0f, h, intArrayOf(0x26000000, 0x0D000000, 0xBF000000.toInt()),
-                floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP,
+                0f, 0f, 0f, h, intArrayOf(0x26000000, 0x73000000, 0x73000000, 0xCC000000.toInt()),
+                floatArrayOf(0f, 0.38f, 0.6f, 1f), Shader.TileMode.CLAMP,
             )
         }
         canvas.drawRect(0f, 0f, out.width.toFloat(), h, paint)
@@ -603,6 +724,7 @@ fun WidgetCard(modifier: Modifier, background: Brush? = null, content: @Composab
 fun Header(
     weather: Weather?, events: List<CalEvent>, place: String, heating: HeatingState?,
     onLink: () -> Unit, onPanel: (() -> Unit)?, hasCalendars: Boolean,
+    onWeather: () -> Unit, onCalendar: () -> Unit, weatherModifier: Modifier, calendarModifier: Modifier,
 ) {
     val now by produceState(LocalDateTime.now()) {
         while (true) {
@@ -617,7 +739,7 @@ fun Header(
     ) {
         ClockCard(now, Modifier.width(160.dp).fillMaxHeight())
         val third = heating != null || onPanel != null
-        WeatherCard(weather, place, Modifier.width(if (third) 292.dp else 372.dp).fillMaxHeight())
+        WeatherCard(weather, place, onWeather, weatherModifier.width(if (third) 292.dp else 372.dp).fillMaxHeight())
         val side = Modifier.width(166.dp).fillMaxHeight()
         if (heating != null) {
             HeatingCard(heating, onLink, onPanel, side)
@@ -628,8 +750,9 @@ fun Header(
                 Txt("Open controls", 20.sp, FontWeight.SemiBold, shadow = false)
             }
         }
-        val rest = Modifier.weight(1f).fillMaxHeight()
-        if (hasCalendars) CalendarCard(events, now.toLocalDate(), rest) else MonthCard(now.toLocalDate(), rest)
+        val rest = calendarModifier.weight(1f).fillMaxHeight()
+        if (hasCalendars) CalendarCard(events, now.toLocalDate(), onCalendar, rest)
+        else MonthCard(now.toLocalDate(), onCalendar, rest)
     }
 }
 
@@ -669,13 +792,13 @@ fun ClockCard(now: LocalDateTime, modifier: Modifier) {
 }
 
 @Composable
-fun WeatherCard(w: Weather?, place: String, modifier: Modifier) =
-    WidgetCard(modifier, background = w?.let { weatherBrush(it.code, it.isDay) }) {
+fun WeatherCard(w: Weather?, place: String, onClick: () -> Unit, modifier: Modifier) =
+    ButtonCard(onClick, modifier, background = w?.let { weatherBrush(it.code, it.isDay) }) {
         val title = place.ifBlank { "Weather" }
         if (w == null) {
             Txt(title, 15.sp, FontWeight.SemiBold, shadow = false)
             Txt("--°", 46.sp, FontWeight.Medium, shadow = false)
-            return@WidgetCard
+            return@ButtonCard
         }
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
@@ -720,7 +843,9 @@ private fun readingTime(millis: Long): String {
 /** A widget you can select. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun ButtonCard(onClick: () -> Unit, modifier: Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun ButtonCard(
+    onClick: () -> Unit, modifier: Modifier, background: Brush? = null, content: @Composable ColumnScope.() -> Unit,
+) {
     Surface(
         onClick = onClick,
         modifier = modifier,
@@ -735,7 +860,10 @@ fun ButtonCard(onClick: () -> Unit, modifier: Modifier, content: @Composable Col
             focusedBorder = Border(BorderStroke(2.dp, Color.White.copy(alpha = 0.7f)), shape = CardShape),
         ),
     ) {
-        Column(Modifier.fillMaxSize().padding(17.dp), content = content)
+        Box(Modifier.fillMaxSize()) {
+            if (background != null) Box(Modifier.matchParentSize().background(background))
+            Column(Modifier.fillMaxSize().padding(17.dp), content = content)
+        }
     }
 }
 
@@ -784,7 +912,10 @@ private fun ColumnScope.HeatingContent(state: HeatingState) {
         Txt("Set to ${deg(h.target)}$range$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
         Spacer(Modifier.weight(1f))
         h.nextAt?.let {
-            Txt("Next ${readingTime(it)} → ${deg(h.nextTarget)}", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+            // Within a day the time alone is clear, and a weekday wouldn't fit beside the temperature.
+            val soon = it - System.currentTimeMillis() < 24 * 60 * 60_000L
+            val at = if (soon) java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(HHmm) else readingTime(it)
+            Txt("Next: $at → ${deg(h.nextTarget)}", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
         }
         val humidity = h.humidity?.let { "${it.roundToInt()}%" }
         if (h.active) {
@@ -801,8 +932,8 @@ private fun ColumnScope.HeatingContent(state: HeatingState) {
     }
 
 @Composable
-fun MonthCard(today: LocalDate, modifier: Modifier) =
-    WidgetCard(modifier) {
+fun MonthCard(today: LocalDate, onClick: () -> Unit, modifier: Modifier) =
+    ButtonCard(onClick, modifier) {
         Txt(today.format(MonthFmt).uppercase(), 11.sp, FontWeight.SemiBold, color = IosRed, maxLines = 1, shadow = false)
         val start = WeekFields.of(Locale.getDefault()).firstDayOfWeek
         val first = today.withDayOfMonth(1)
@@ -824,8 +955,8 @@ fun MonthCard(today: LocalDate, modifier: Modifier) =
     }
 
 @Composable
-fun CalendarCard(events: List<CalEvent>, today: LocalDate, modifier: Modifier) =
-    WidgetCard(modifier) {
+fun CalendarCard(events: List<CalEvent>, today: LocalDate, onClick: () -> Unit, modifier: Modifier) =
+    ButtonCard(onClick, modifier) {
         Txt(today.format(WeekdayFmt).uppercase(), 11.sp, FontWeight.SemiBold, color = IosRed, maxLines = 1, shadow = false)
         Txt(today.dayOfMonth.toString(), 32.sp, FontWeight.Medium, lineHeight = 36.sp, shadow = false)
         Spacer(Modifier.height(6.dp))
@@ -868,13 +999,17 @@ private fun eventTime(e: CalEvent, now: ZonedDateTime): String {
 // ---------- Rows & tiles ----------
 
 @Composable
-fun TileRow(title: String, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
+fun TileRow(
+    title: String, modifier: Modifier = Modifier, state: LazyListState = rememberLazyListState(),
+    content: LazyListScope.() -> Unit,
+) {
     Column(modifier.padding(top = 2.dp)) {
-        Txt(title, 15.sp, FontWeight.SemiBold, alpha = 0.8f, modifier = Modifier.padding(start = 52.dp))
+        Txt(title, 16.sp, FontWeight.Bold, modifier = Modifier.padding(start = 52.dp))
         val inset = with(LocalDensity.current) { RowInset.toPx() }
         val rowScroll = remember(inset) { RowScroll(inset) }
         CompositionLocalProvider(LocalBringIntoViewSpec provides rowScroll) {
             LazyRow(
+                state = state,
                 modifier = Modifier.fillMaxWidth().focusRestorer(),
                 contentPadding = PaddingValues(horizontal = RowInset, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(26.dp),
@@ -884,13 +1019,31 @@ fun TileRow(title: String, modifier: Modifier = Modifier, content: LazyListScope
     }
 }
 
+/** The home-screen wobble while apps are being rearranged. */
 @Composable
-fun Tile(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun Modifier.wobble(index: Int): Modifier {
+    val angle = rememberInfiniteTransition(label = "wobble").animateFloat(
+        initialValue = -1.6f, targetValue = 1.6f,
+        animationSpec = infiniteRepeatable(tween(130 + index % 3 * 15, easing = LinearEasing), RepeatMode.Reverse),
+        label = "angle",
+    )
+    return graphicsLayer { rotationZ = if (index % 2 == 0) angle.value else -angle.value }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun Tile(
+    label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null, jiggle: Int? = null,
+    content: @Composable BoxScope.() -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.width(TileW), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
-            modifier = modifier.size(TileW, TileH).onFocusChanged { focused = it.isFocused },
+            onLongClick = onLongClick,
+            modifier = modifier.size(TileW, TileH).onFocusChanged { focused = it.isFocused }
+                .then(if (jiggle != null) Modifier.wobble(jiggle) else Modifier),
             shape = ClickableSurfaceDefaults.shape(TileShape),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
             colors = ClickableSurfaceDefaults.colors(
@@ -909,8 +1062,11 @@ fun Tile(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, cont
 }
 
 @Composable
-fun AppTile(app: AppEntry, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Tile(app.label, onClick, modifier) {
+fun AppTile(
+    app: AppEntry, modifier: Modifier = Modifier, jiggle: Int? = null, badge: String? = null,
+    onLongClick: (() -> Unit)? = null, onClick: () -> Unit,
+) {
+    Tile(app.label, onClick, modifier, onLongClick, jiggle) {
         if (app.banner != null) {
             Image(app.banner, app.label, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
@@ -923,6 +1079,12 @@ fun AppTile(app: AppEntry, modifier: Modifier = Modifier, onClick: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Txt(app.label, 12.sp, FontWeight.Medium, maxLines = 1, shadow = false)
             }
+        }
+        if (badge != null) {
+            Box(
+                Modifier.align(Alignment.TopStart).padding(6.dp).clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.75f)).padding(horizontal = 7.dp, vertical = 1.dp),
+            ) { Txt(badge, 13.sp, FontWeight.Bold, shadow = false) }
         }
     }
 }

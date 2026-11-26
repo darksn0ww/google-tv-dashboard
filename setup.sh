@@ -129,6 +129,42 @@ TV IP address") || exit 1
   done
 }
 
+# ---------- Backup ----------
+
+# Saves how the TV (and this folder) were before anything changes, with commands to put it back.
+backup() { # [settings file in use]
+  local dir item ns name value path f
+  step "Backing up"
+  dir=$PWD/tv-dashboard-backup-$(date +%Y%m%d-%H%M%S)
+  (umask 077 && mkdir "$dir") || die "Couldn't create $dir; nothing was changed."
+  {
+    echo "# To put the TV back, connect with: adb connect $SERIAL"
+    echo "# then run the lines below. The first removes the dashboard, its settings and sign-ins."
+    echo "adb uninstall $PKG"
+    for item in secure:enabled_accessibility_services secure:accessibility_enabled \
+      secure:enabled_notification_listeners secure:screensaver_enabled system:screen_off_timeout; do
+      ns=${item%%:*} name=${item#*:}
+      value=$(tv settings get "$ns" "$name")
+      case $value in
+        '') ;;
+        null) echo "adb shell settings delete $ns $name" ;;
+        *) echo "adb shell \"settings put $ns $name '$value'\"" ;;
+      esac
+    done
+  } >"$dir/restore.txt" || die "Couldn't write the backup; nothing was changed."
+  tv pm list packages >"$dir/packages.txt"
+  path=$(tv pm path $PKG | sed -n 's/^package://p' | head -1)
+  if [ -n "$path" ]; then
+    adb_ -s "$SERIAL" pull "$path" "$dir/previous-app.apk" >/dev/null || die "Couldn't back up the installed app; nothing was changed."
+    echo "# The version you had is previous-app.apk: after uninstalling, adb install previous-app.apk" >>"$dir/restore.txt"
+  fi
+  for f in "$PWD/config.json" "$PWD/wallpaper.img" "${1:-}"; do
+    if [ -n "$f" ] && [ -f "$f" ]; then cp "$f" "$dir/" || die "Couldn't copy $f; nothing was changed."; fi
+  done
+  say "  Saved to $dir
+  It can hold private links and keys: keep it to yourself."
+}
+
 # ---------- App ----------
 
 download_apk() { # folder
@@ -368,6 +404,33 @@ Heating and smart home
   say "  Saved to $1. It holds private links and keys: don't share it."
 }
 
+# ---------- Screensaver ----------
+
+screensaver() {
+  local on ms now choice minutes
+  on=$(tv settings get secure screensaver_enabled)
+  ms=$(tv settings get system screen_off_timeout)
+  case $ms in '' | *[!0-9]*) now="after an unknown time" ;; *) now="after $((ms / 60000)) minutes" ;; esac
+  [ "$on" = 0 ] && now="never (it's off)"
+  step "Screensaver"
+  say "  The TV's ambient screensaver currently starts $now.
+  1. Leave it as it is
+  2. Change how long it waits
+  3. Turn it off (the TV may switch its screen off instead)"
+  choice=$(ask "Which?" 1) || exit 1
+  case $choice in
+    2) while :; do
+         minutes=$(ask "  Minutes before it starts" 10) || exit 1
+         case $minutes in *[!0-9]* | '' | 0* | ?????*) say "  A whole number of minutes, from 1." ;; *) break ;; esac
+       done
+       tv settings put system screen_off_timeout $((minutes * 60000))
+       tv settings put secure screensaver_enabled 1
+       say "  Set to $minutes minutes." ;;
+    3) tv settings put secure screensaver_enabled 0
+       say "  Off. Run this again and choose 2 to turn it back on." ;;
+  esac
+}
+
 # ---------- Install ----------
 
 start_app() { tv am start -n $PKG/.MainActivity >/dev/null; }
@@ -423,6 +486,7 @@ main() {
 
   find_adb
   connect
+  backup "$config"
 
   if [ -z "$apk" ]; then
     WORK=$(mktemp -d) || die "Couldn't make a temporary folder."
@@ -473,6 +537,8 @@ settings and sign-ins): adb uninstall $PKG" ;;
   elif yes_no "Show what you were watching? (needs notification access; notifications aren't read)"; then
     tv cmd notification allow_listener $LISTENER >/dev/null
   fi
+
+  screensaver
 
   start_app
   say "

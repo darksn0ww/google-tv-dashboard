@@ -6,6 +6,7 @@ local.properties
 tado-schedule.json
 tado-schedule.tmp
 wallpaper.img
+tv-dashboard-backup*/
 config*.json
 !config.example.json
 *.keystore

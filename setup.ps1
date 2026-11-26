@@ -116,6 +116,39 @@
         }
     }
 
+    # ---------- Backup ----------
+
+    # Saves how the TV (and this folder) were before anything changes, with commands to put it back.
+    function Backup-Tv($settingsFile) {
+        Step 'Backing up'
+        $dir = Join-Path $here ('tv-dashboard-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+        New-Item -ItemType Directory $dir | Out-Null
+        $restore = New-Object System.Collections.Generic.List[string]
+        $restore.Add("# To put the TV back, connect with: adb connect $script:Serial")
+        $restore.Add('# then run the lines below. The first removes the dashboard, its settings and sign-ins.')
+        $restore.Add("adb uninstall $Pkg")
+        foreach ($item in 'secure:enabled_accessibility_services', 'secure:accessibility_enabled',
+            'secure:enabled_notification_listeners', 'secure:screensaver_enabled', 'system:screen_off_timeout') {
+            $ns, $name = $item.Split(':')
+            $value = (Tv settings get $ns $name).Trim()
+            if ($value -eq 'null') { $restore.Add("adb shell settings delete $ns $name") }
+            elseif ($value) { $restore.Add("adb shell `"settings put $ns $name '$value'`"") }
+        }
+        [IO.File]::WriteAllText((Join-Path $dir 'packages.txt'), (Tv pm list packages))
+        $path = @((Tv pm path $Pkg) -split "`n" | Where-Object { $_ -match '^package:' })
+        if ($path.Count) {
+            $old = Join-Path $dir 'previous-app.apk'
+            Adb -s $script:Serial pull ($path[0] -replace '^package:', '').Trim() $old | Out-Null
+            if (-not (Test-Path $old)) { throw "Couldn't back up the installed app; nothing was changed." }
+            $restore.Add('# The version you had is previous-app.apk: after uninstalling, adb install previous-app.apk')
+        }
+        [IO.File]::WriteAllLines((Join-Path $dir 'restore.txt'), $restore)
+        foreach ($f in (Join-Path $here 'config.json'), (Join-Path $here 'wallpaper.img'), $settingsFile) {
+            if ($f -and (Test-Path -LiteralPath $f)) { Copy-Item -LiteralPath $f -Destination $dir -Force }
+        }
+        Write-Host "  Saved to $dir`n  It can hold private links and keys: keep it to yourself."
+    }
+
     # ---------- App ----------
 
     function Get-Apk($folder) {
@@ -272,6 +305,32 @@
         Write-Host "  Saved to $path. It holds private links and keys: don't share it."
     }
 
+    # ---------- Screensaver ----------
+
+    function Set-Screensaver {
+        $on = (Tv settings get secure screensaver_enabled).Trim()
+        $ms = (Tv settings get system screen_off_timeout).Trim() -as [long]
+        $now = if ($on -eq '0') { "never (it's off)" } elseif ($ms) { "after $([math]::Floor($ms / 60000)) minutes" } else { 'after an unknown time' }
+        Step 'Screensaver'
+        Write-Host "  The TV's ambient screensaver currently starts $now.`n  1. Leave it as it is`n  2. Change how long it waits`n  3. Turn it off (the TV may switch its screen off instead)"
+        switch (Ask 'Which?' '1') {
+            '2' {
+                while ($true) {
+                    $minutes = Ask '  Minutes before it starts' '10'
+                    if ($minutes -match '^[1-9]\d{0,3}$') { break }
+                    Write-Host '  A whole number of minutes, from 1.'
+                }
+                Tv settings put system screen_off_timeout ([long]$minutes * 60000) | Out-Null
+                Tv settings put secure screensaver_enabled 1 | Out-Null
+                Write-Host "  Set to $minutes minutes."
+            }
+            '3' {
+                Tv settings put secure screensaver_enabled 0 | Out-Null
+                Write-Host '  Off. Run this again and choose 2 to turn it back on.'
+            }
+        }
+    }
+
     # ---------- Install ----------
 
     function Start-App { Tv am start -n "$Pkg/.MainActivity" | Out-Null }
@@ -322,6 +381,7 @@
     try {
         $script:AdbPath = Find-Adb
         Connect-Tv
+        Backup-Tv $config
 
         if (-not $apk) {
             $work = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid())
@@ -369,6 +429,8 @@
         } elseif (YesNo "Show what you were watching? (needs notification access; notifications aren't read)") {
             Tv cmd notification allow_listener $Listener | Out-Null
         }
+
+        Set-Screensaver
 
         Start-App
         Write-Host "`nDone. Turn Wireless debugging off on the TV if you don't need it again."

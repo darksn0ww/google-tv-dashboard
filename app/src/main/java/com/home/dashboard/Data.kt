@@ -15,6 +15,8 @@ import java.io.File
 import java.io.IOException
 import java.net.URLEncoder
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -131,20 +133,37 @@ object Net {
 
 // ---------- Weather (Open-Meteo, no key) ----------
 
-data class Day(val date: LocalDate, val code: Int, val hi: Int, val lo: Int)
+data class Day(
+    val date: LocalDate, val code: Int, val hi: Int, val lo: Int,
+    val rain: Int = 0, val rainMm: Double = 0.0, val uv: Int = 0,
+    val sunrise: LocalDateTime? = null, val sunset: LocalDateTime? = null,
+)
+data class Hour(val time: LocalDateTime, val temp: Int, val code: Int, val isDay: Boolean, val rain: Int)
 data class Weather(
     val temp: Int, val feels: Int, val code: Int, val isDay: Boolean,
     val hi: Int, val lo: Int, val days: List<Day>,
+    val hours: List<Hour> = emptyList(),
+    val humidity: Int = 0, val wind: Int = 0, val windDirection: Int = 0, val windUnit: String = "mph",
 )
 
 object WeatherApi {
     fun fetch(lat: Double, lon: Double): Weather {
+        val unit = if (Locale.getDefault().country in setOf("GB", "US")) "mph" else "kmh"
         val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-            "&current=temperature_2m,apparent_temperature,weather_code,is_day" +
-            "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=6"
-        val j = JSONObject(Net.get(url))
+            "&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m" +
+            "&hourly=temperature_2m,weather_code,is_day,precipitation_probability" +
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum," +
+            "uv_index_max,sunrise,sunset&wind_speed_unit=$unit&timezone=auto&forecast_days=10"
+        return parse(Net.get(url), if (unit == "kmh") "km/h" else unit)
+    }
+
+    fun parse(json: String, windUnit: String): Weather {
+        val j = JSONObject(json)
         val c = j.getJSONObject("current")
         val d = j.getJSONObject("daily")
+        fun JSONObject.num(key: String, i: Int) = optJSONArray(key)?.optDouble(i)?.takeIf { !it.isNaN() } ?: 0.0
+        fun JSONObject.time(key: String, i: Int) =
+            runCatching { LocalDateTime.parse(getJSONArray(key).getString(i)) }.getOrNull()
         val dates = d.getJSONArray("time")
         val days = (0 until dates.length()).map { i ->
             Day(
@@ -152,6 +171,22 @@ object WeatherApi {
                 d.getJSONArray("weather_code").getInt(i),
                 d.getJSONArray("temperature_2m_max").getDouble(i).roundToInt(),
                 d.getJSONArray("temperature_2m_min").getDouble(i).roundToInt(),
+                rain = d.num("precipitation_probability_max", i).roundToInt(),
+                rainMm = d.num("precipitation_sum", i),
+                uv = d.num("uv_index_max", i).roundToInt(),
+                sunrise = d.time("sunrise", i),
+                sunset = d.time("sunset", i),
+            )
+        }
+        val h = j.optJSONObject("hourly")
+        val times = h?.optJSONArray("time")
+        val hours = (0 until (times?.length() ?: 0)).mapNotNull { i ->
+            Hour(
+                h!!.time("time", i) ?: return@mapNotNull null,
+                h.num("temperature_2m", i).roundToInt(),
+                h.num("weather_code", i).roundToInt(),
+                h.num("is_day", i) == 1.0,
+                h.num("precipitation_probability", i).roundToInt(),
             )
         }
         return Weather(
@@ -162,6 +197,11 @@ object WeatherApi {
             hi = days.firstOrNull()?.hi ?: 0,
             lo = days.firstOrNull()?.lo ?: 0,
             days = days,
+            hours = hours,
+            humidity = c.optInt("relative_humidity_2m"),
+            wind = c.optDouble("wind_speed_10m", 0.0).roundToInt(),
+            windDirection = c.optInt("wind_direction_10m"),
+            windUnit = windUnit,
         )
     }
 }
