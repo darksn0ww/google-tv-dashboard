@@ -47,7 +47,9 @@ class ScreensTest {
                       "is_day":[1,0],"precipitation_probability":[5,null]},
             "daily":{"time":["2026-11-26"],"weather_code":[3],"temperature_2m_max":[6.2],"temperature_2m_min":[1.8],
                      "precipitation_probability_max":[40],"precipitation_sum":[1.25],"uv_index_max":[0.8],
-                     "sunrise":["2026-11-26T07:37"],"sunset":["2026-11-26T15:56"]}}"""
+                     "sunrise":["2026-11-26T07:37"],"sunset":["2026-11-26T15:56"],"apparent_temperature_max":[3.2],
+                     "apparent_temperature_min":[-1.4],"relative_humidity_2m_mean":[75],"wind_speed_10m_max":[15.5],
+                     "wind_direction_10m_dominant":[82]}}"""
         val w = WeatherApi.parse(json, "mph")
         assertEquals(4, w.temp)
         assertEquals(10, w.wind)
@@ -56,5 +58,9 @@ class ScreensTest {
         assertEquals(1, w.days[0].uv)
         assertEquals(15, w.days[0].sunset!!.hour)
         assertEquals(6, w.hi)
+        assertEquals(WeatherTile("FEELS LIKE", "2°", "Now"), dayTiles(w, 0)[0])
+        val later = dayTiles(w.copy(days = w.days + w.days), 1)
+        assertEquals(WeatherTile("FEELS LIKE", "3°", "Low -1°"), later[0])
+        assertEquals(WeatherTile("WIND", "16 mph", "Up to, from E"), later[2])
     }
 }

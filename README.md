@@ -18,7 +18,8 @@ camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) b
 
 - **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant)
   or [Google Nest](#google-nest-thermostat-experimental) and a merged calendar from any number of iCal / webcal links
-- **Weather and calendar screens:** select either widget for hourly and 10-day weather, or the
+- **Weather and calendar screens:** select either widget for the next 12 hours and 10 days of
+  weather (move down the days for each one's details), or the
   next 30 days with event dots and details
 - **Wallpaper:** random photos from Unsplash
 - **Apps:** a favourites row, every other app, and physical inputs on TVs that have them. Hold OK on

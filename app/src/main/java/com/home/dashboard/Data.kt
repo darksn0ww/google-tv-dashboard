@@ -137,6 +137,7 @@ data class Day(
     val date: LocalDate, val code: Int, val hi: Int, val lo: Int,
     val rain: Int = 0, val rainMm: Double = 0.0, val uv: Int = 0,
     val sunrise: LocalDateTime? = null, val sunset: LocalDateTime? = null,
+    val feelsHi: Int = 0, val feelsLo: Int = 0, val humidity: Int = 0, val wind: Int = 0, val windDirection: Int = 0,
 )
 data class Hour(val time: LocalDateTime, val temp: Int, val code: Int, val isDay: Boolean, val rain: Int)
 data class Weather(
@@ -153,7 +154,8 @@ object WeatherApi {
             "&current=temperature_2m,apparent_temperature,weather_code,is_day,relative_humidity_2m,wind_speed_10m,wind_direction_10m" +
             "&hourly=temperature_2m,weather_code,is_day,precipitation_probability" +
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum," +
-            "uv_index_max,sunrise,sunset&wind_speed_unit=$unit&timezone=auto&forecast_days=10"
+            "uv_index_max,sunrise,sunset,apparent_temperature_max,apparent_temperature_min,relative_humidity_2m_mean," +
+            "wind_speed_10m_max,wind_direction_10m_dominant&wind_speed_unit=$unit&timezone=auto&forecast_days=10"
         return parse(Net.get(url), if (unit == "kmh") "km/h" else unit)
     }
 
@@ -176,6 +178,11 @@ object WeatherApi {
                 uv = d.num("uv_index_max", i).roundToInt(),
                 sunrise = d.time("sunrise", i),
                 sunset = d.time("sunset", i),
+                feelsHi = d.num("apparent_temperature_max", i).roundToInt(),
+                feelsLo = d.num("apparent_temperature_min", i).roundToInt(),
+                humidity = d.num("relative_humidity_2m_mean", i).roundToInt(),
+                wind = d.num("wind_speed_10m_max", i).roundToInt(),
+                windDirection = d.num("wind_direction_10m_dominant", i).roundToInt(),
             )
         }
         val h = j.optJSONObject("hourly")

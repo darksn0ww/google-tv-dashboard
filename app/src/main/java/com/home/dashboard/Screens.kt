@@ -22,13 +22,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -219,17 +219,37 @@ private fun uvLabel(uv: Int) = when {
     else -> "Extreme"
 }
 
-/** Current conditions, the next 24 hours, ten days and the day's details. */
+data class WeatherTile(val label: String, val value: String, val note: String)
+
+/** The six detail tiles for day [index]; today shows conditions as they are now. */
+fun dayTiles(w: Weather, index: Int): List<WeatherTile> {
+    val d = w.days.getOrNull(index)
+    val today = index == 0
+    return listOf(
+        if (today) WeatherTile("FEELS LIKE", "${w.feels}°", "Now")
+        else WeatherTile("FEELS LIKE", "${d?.feelsHi ?: 0}°", "Low ${d?.feelsLo ?: 0}°"),
+        if (today) WeatherTile("HUMIDITY", "${w.humidity}%", "Now")
+        else WeatherTile("HUMIDITY", "${d?.humidity ?: 0}%", "Average"),
+        if (today) WeatherTile("WIND", "${w.wind} ${w.windUnit}", "From ${compass(w.windDirection)}")
+        else WeatherTile("WIND", "${d?.wind ?: 0} ${w.windUnit}", "Up to, from ${compass(d?.windDirection ?: 0)}"),
+        WeatherTile("UV INDEX", "${d?.uv ?: 0}", uvLabel(d?.uv ?: 0)),
+        WeatherTile("SUNRISE", d?.sunrise?.format(Time) ?: "--", "Sunset ${d?.sunset?.format(Time) ?: "--"}"),
+        WeatherTile("RAINFALL", "${((d?.rainMm ?: 0.0) * 10).roundToInt() / 10.0} mm", "${d?.rain ?: 0}% chance"),
+    )
+}
+
+/** Current conditions and the next 12 hours; choose one of ten days to see its details. */
 @Composable
 fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
     val first = remember { FocusRequester() }
+    var chosen by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         delay(80)
         runCatching { first.requestFocus() }
     }
     val now = remember { LocalDateTime.now() }
-    val hours = w.hours.filter { it.time.isAfter(now.minusHours(1)) }.take(24)
+    val hours = w.hours.filter { it.time.isAfter(now.minusHours(1)) }.take(12)
 
     Column(Modifier.fillMaxSize().background(weatherBrush(w.code, w.isDay)).padding(horizontal = 40.dp, vertical = 20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -242,32 +262,34 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
             Txt("${w.temp}°", 60.sp, FontWeight.Medium, lineHeight = 66.sp, shadow = false)
         }
         Spacer(Modifier.height(10.dp))
-        LazyRow(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(hours) { h ->
-                val isFirst = h == hours.first()
-                FocusCard((if (isFirst) Modifier.focusRequester(first) else Modifier).width(58.dp), Color.Transparent) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Txt(if (isFirst) "Now" else h.time.format(Time), 11.sp, FontWeight.SemiBold, shadow = false)
-                        Spacer(Modifier.height(5.dp))
-                        WIcon(h.code, h.isDay, 20.dp)
-                        Spacer(Modifier.height(2.dp))
-                        Txt(if (h.rain >= 10) "${h.rain}%" else " ", 10.sp, FontWeight.SemiBold, color = Color(0xFF9AD7FF), shadow = false)
-                        Txt("${h.temp}°", 15.sp, FontWeight.SemiBold, shadow = false)
-                    }
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(vertical = 8.dp)) {
+            hours.forEachIndexed { i, h ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Txt(if (i == 0) "Now" else h.time.format(Time), 11.sp, FontWeight.SemiBold, shadow = false)
+                    Spacer(Modifier.height(5.dp))
+                    WIcon(h.code, h.isDay, 20.dp)
+                    Spacer(Modifier.height(2.dp))
+                    Txt(if (h.rain >= 10) "${h.rain}%" else " ", 10.sp, FontWeight.SemiBold, color = Color(0xFF9AD7FF), shadow = false)
+                    Txt("${h.temp}°", 15.sp, FontWeight.SemiBold, shadow = false)
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxSize()) {
-            Column(Modifier.width(460.dp).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Panel).padding(14.dp, 8.dp)) {
-                Txt("10-DAY FORECAST", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+            Column(Modifier.width(460.dp).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(Panel).padding(8.dp, 8.dp)) {
+                Txt("10-DAY FORECAST", 11.sp, FontWeight.SemiBold, Modifier.padding(start = 6.dp), alpha = 0.6f, shadow = false)
                 val low = w.days.minOfOrNull { it.lo } ?: 0
                 val span = ((w.days.maxOfOrNull { it.hi } ?: 1) - low).coerceAtLeast(1)
                 w.days.forEachIndexed { i, d ->
-                    Row(Modifier.fillMaxWidth().weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(8.dp))
+                            .background(if (i == chosen) Color.White.copy(alpha = 0.22f) else Color.Transparent)
+                            .then(if (i == 0) Modifier.focusRequester(first) else Modifier)
+                            .onFocusChanged { if (it.isFocused) chosen = i }
+                            .focusable()
+                            .padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Txt(if (i == 0) "Today" else d.date.format(ShortDay), 13.sp, FontWeight.SemiBold, Modifier.width(52.dp), shadow = false)
                         WIcon(d.code, true, 16.dp)
                         Txt(if (d.rain >= 10) "${d.rain}%" else "", 10.sp, FontWeight.SemiBold, Modifier.width(36.dp).padding(start = 6.dp), color = Color(0xFF9AD7FF), shadow = false)
@@ -285,16 +307,10 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.width(12.dp))
-            val today = w.days.firstOrNull()
-            val tiles = listOf(
-                Triple("FEELS LIKE", "${w.feels}°", ""),
-                Triple("HUMIDITY", "${w.humidity}%", ""),
-                Triple("WIND", "${w.wind} ${w.windUnit}", "From ${compass(w.windDirection)}"),
-                Triple("UV INDEX", "${today?.uv ?: 0}", uvLabel(today?.uv ?: 0)),
-                Triple("SUNRISE", today?.sunrise?.format(Time) ?: "--", "Sunset ${today?.sunset?.format(Time) ?: "--"}"),
-                Triple("RAINFALL", "${((today?.rainMm ?: 0.0) * 10).roundToInt() / 10.0} mm", "${today?.rain ?: 0}% chance today"),
-            )
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val date = w.days.getOrNull(chosen)?.date
+                Txt(if (chosen == 0 || date == null) "Today" else date.format(LongDay), 16.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+                val tiles = dayTiles(w, chosen)
                 tiles.chunked(2).forEach { pair ->
                     Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         pair.forEach { (label, value, note) ->
