@@ -7,8 +7,10 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 | Weather | Calendar |
 | --- | --- |
 | ![Hourly and 10-day weather screen](docs/images/weather.png) | ![30-day calendar with event dots and details](docs/images/calendar.png) |
-| **Smart home panel** | **Rearranging favourites** |
-| ![Panel with heating, vacuum controls, map and lights](docs/images/panel.png) | ![Wobbling app tiles with one picked up](docs/images/edit.png) |
+| **Smart home panel** | **Expanded to full screen** |
+| ![Side panel with heating, vacuum controls, map and lights](docs/images/panel.png) | ![Full-screen home view with climate dial, vacuum map and lights](docs/images/panel-full.png) |
+| **Rearranging favourites** | |
+| ![Wobbling app tiles with one picked up](docs/images/edit.png) | |
 
 *Demo data throughout: the calendar entries, readings, floor plan and devices are made up, and the
 camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) by Luca Bravo
@@ -200,15 +202,17 @@ into the APK. Anyone who has it can control your Home Assistant as that user, an
 ### Smart home panel
 
 Add any of these to `homeAssistant` and select the heating card to open a panel with your
-vacuum (start, pause, dock) and on/off buttons for plugs and lights:
+vacuum (map, start, pause, dock) and on/off tiles for plugs and lights. The button at its top
+makes it full screen; Back shrinks it again:
 
     "vacuum": "vacuum.robot",
     "battery": "sensor.robot_battery",
     "devices": [{"name": "Lamp", "entity": "light.lamp"}],
     "maps": ["image.robot_downstairs", "image.robot_upstairs"],
-    "mapSelect": "select.robot_selected_map"
+    "mapSelect": "select.robot_selected_map",
+    "care": [{"name": "Filter", "entity": "sensor.robot_filter_time_left"}]
 
-`maps` shows the vacuum's map in the panel (the Roborock integration provides these `image`
+`care` lists sensors shown on the full screen when there are no plugs or lights. `maps` shows the vacuum's map in the panel (the Roborock integration provides these `image`
 entities). With `mapSelect`, the floor the vacuum has selected is shown. Heating is read-only. The TV only sends commands to the entities listed here, and only
 `light`, `switch`, `fan` and `input_boolean` devices. That is a limit of the app, not of the
 token, which can do whatever its Home Assistant user can.

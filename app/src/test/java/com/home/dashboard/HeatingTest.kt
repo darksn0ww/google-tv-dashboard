@@ -69,6 +69,7 @@ class HeatingTest {
                 "vacuum.v" to (200 to entity("vacuum.v", "docked")),
                 "sensor.b" to (200 to entity("sensor.b", "51")),
                 "select.floor" to (200 to entity("select.floor", "Up")),
+                "sensor.filter" to (200 to entity("sensor.filter", "147.125", """{"unit_of_measurement":"h"}""")),
                 "image.up" to (200 to entity("image.up", "2026-01-01T09:00:00+00:00", """{"friendly_name":"Robot Up"}""")),
                 "image.down" to (200 to entity("image.down", "2026-01-01T10:00:00+00:00", """{"friendly_name":"Robot Down"}""")),
                 "/api/services/switch/turn_off" to (200 to "[]"),
@@ -79,12 +80,15 @@ class HeatingTest {
                 HaConfig(
                     fake.url, "good", "", vacuum = "vacuum.v", battery = "sensor.b", devices = listOf(lamp, door),
                     maps = listOf("image.down", "image.up"), mapSelect = "select.floor",
+                    care = listOf(HaDevice("Filter", "sensor.filter")),
                 ),
             )
             val state = home.read()
             assertEquals(VacuumState("docked", 51), state.vacuum)
             assertEquals(true, state.devices.first().on)
             assertEquals("image.up", state.map!!.entity) // the selected floor, not the newer picture
+            assertEquals("Up", state.floor)
+            assertEquals(listOf("Filter" to "147 h"), state.care)
             assertNull(home.set(lamp, false))
             assertNull(home.vacuum("start"))
             assertEquals("not allowed", home.set(door, true))

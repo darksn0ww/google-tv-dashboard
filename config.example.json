@@ -20,6 +20,7 @@
     "battery": "sensor.robot_battery",
     "devices": [{"name": "Lamp", "entity": "light.lamp"}],
     "maps": ["image.robot_downstairs"],
-    "mapSelect": "select.robot_selected_map"
+    "mapSelect": "select.robot_selected_map",
+    "care": [{"name": "Filter", "entity": "sensor.robot_filter_time_left"}]
   }
 }

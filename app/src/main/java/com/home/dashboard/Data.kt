@@ -104,6 +104,9 @@ data class Config(
                         (0 until a.length()).map { val d = a.getJSONObject(it); HaDevice(d.getString("name"), d.getString("entity")) }
                     }.orEmpty(),
                     h.optJSONArray("maps").strings(), h.optString("mapSelect"),
+                    h.optJSONArray("care")?.let { a ->
+                        (0 until a.length()).map { val c = a.getJSONObject(it); HaDevice(c.getString("name"), c.getString("entity")) }
+                    }.orEmpty(),
                 )
             },
             tado = j.optBoolean("tado"),
