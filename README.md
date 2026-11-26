@@ -8,8 +8,8 @@ A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV
 
 ## Features
 
-- **Widgets:** clock, weather with a 5-day forecast, [tado°](https://www.tado.com) heating and a
-  merged calendar from any number of iCal / webcal links
+- **Widgets:** clock, weather with a 5-day forecast, [tado°](https://www.tado.com) or
+  [Google Nest](#google-nest-thermostat-experimental) heating and a merged calendar from any number of iCal / webcal links
 - **Wallpaper:** random photos from Unsplash
 - **Apps:** a favourites row, every other app, and physical inputs on TVs that have them
 - **Cameras:** UniFi Protect (or any RTSP) stills on the home screen, live video full screen
@@ -69,12 +69,37 @@ it holds your API key and private links.
 | `snapshotSeconds` | How often camera stills refresh (default 15) |
 | `favourites`, `hidden` | Package names to pin or hide |
 | `tado`, `tadoZone` | Show the heating card, and which room |
+| `nest` | Written by `tools/nest-auth.py`; replaces tado on the heating card |
 
 **Heating:** select the card and approve the code in your browser. Without a tado subscription
 the API allows few requests a day, so readings can be around 30 minutes old.
 
 **Cameras:** UniFi Protect `rtsps://…:7441` links are converted to Protect's plain RTSP port
 7447, so video is unencrypted on your local network.
+
+## Google Nest thermostat (experimental)
+
+> **Untested on real hardware.** Written from Google's documentation; reports and fixes are welcome.
+
+Shows current temperature, target and eco mode. It is read-only, and Google's API provides no
+schedule, so there is no "next change".
+
+You need your own credentials:
+
+1. Register for [Device Access](https://developers.google.com/nest/device-access/registration)
+   with the Google account that owns the thermostat. Google charges a one-off US$5.
+2. In [Google Cloud](https://console.cloud.google.com), create a project, enable the **Smart Device
+   Management API**, and create an OAuth client of type **Web application** with the redirect URI
+   `https://www.google.com`.
+3. On the OAuth consent screen, add the `https://www.googleapis.com/auth/sdm.service` scope and
+   **publish the app to production**. Left in testing, sign-ins can stop working after 7 days.
+4. In the [Device Access console](https://console.nest.google.com/device-access), create a project
+   using that OAuth client ID. Note the project ID.
+5. On your computer, run `python3 tools/nest-auth.py config.json` and follow the prompts.
+6. Deploy with the updated `config.json`. Set `nest.room` to choose between several thermostats.
+
+See Google's [authorisation guide](https://developers.google.com/nest/device-access/authorize).
+The secret and token are stored in `config.json` and the app's private storage: keep them private.
 
 ## Permissions
 

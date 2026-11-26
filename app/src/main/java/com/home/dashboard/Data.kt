@@ -43,6 +43,7 @@ data class Config(
     val calendars: List<String> = emptyList(),
     val cameras: List<Camera> = emptyList(),
     val snapshotSeconds: Int = 15,
+    val nest: NestConfig? = null,
     val tado: Boolean = false,
     val tadoZone: String = "",
     val favourites: List<String> = emptyList(),
@@ -76,6 +77,12 @@ data class Config(
                 (0 until a.length()).map { val o = a.getJSONObject(it); Camera(o.getString("name"), o.getString("url"), o.optString("hd")) }
             }.orEmpty(),
             snapshotSeconds = j.optInt("snapshotSeconds", 15).coerceAtLeast(5),
+            nest = j.optJSONObject("nest")?.let { n ->
+                NestConfig(
+                    n.optString("projectId"), n.optString("clientId"), n.optString("clientSecret"),
+                    n.optString("refreshToken"), n.optString("room"),
+                ).takeIf { it.projectId.isNotBlank() && it.refreshToken.isNotBlank() }
+            },
             tado = j.optBoolean("tado"),
             tadoZone = j.optString("tadoZone"),
             favourites = j.optJSONArray("favourites").strings(),

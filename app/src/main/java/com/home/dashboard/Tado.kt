@@ -25,6 +25,8 @@ data class Heating(
     val nextAt: Long?, // epoch millis
     val nextTarget: Double?,
     val updated: Long,
+    val upperTarget: Double? = null, // Nest heat/cool mode
+    val eco: Boolean = false,
 )
 
 sealed interface TadoState {

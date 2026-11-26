@@ -313,10 +313,26 @@ fun Dashboard(homePresses: StateFlow<Int>) {
 
     val photo = rememberWallpaper(config)
     val tado = remember { Tado(ctx.applicationContext) }
-    val heating by tado.state.collectAsState()
+    val tadoState by tado.state.collectAsState()
+    // A configured Nest takes the heating card; otherwise tado if enabled.
+    val nestState by produceState<TadoState>(TadoState.Linked(null), config.nest, owner) {
+        val cfg = config.nest ?: return@produceState
+        val nest = Nest(cfg)
+        var last: Heating? = null
+        owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = runCatching { withContext(Dispatchers.IO) { nest.read() } }.fold(
+                    { last = it; TadoState.Linked(it) },
+                    { TadoState.Linked(last, it.message ?: "Nest unavailable") },
+                )
+                delay(5 * 60_000L)
+            }
+        }
+    }
+    val heating: TadoState? = if (config.nest != null) nestState else if (config.tado) tadoState else null
     // Only while on screen; Tado.refresh itself decides whether a request is due.
-    LaunchedEffect(config.tado, config.tadoZone, heating is TadoState.Linked, owner) {
-        if (!config.tado) return@LaunchedEffect
+    LaunchedEffect(config.tado, config.nest, config.tadoZone, tadoState is TadoState.Linked, owner) {
+        if (!config.tado || config.nest != null) return@LaunchedEffect
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             while (true) { tado.refresh(config.tadoZone); delay(60_000) }
         }
@@ -373,7 +389,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                 if (it.hasFocus) scope.launch { delay(150); listState.animateScrollToItem(0) }
                             },
                         ) {
-                            Header(weather, events, config.place, if (config.tado) heating else null) { scope.launch { tado.link() } }
+                            Header(weather, events, config.place, heating) { scope.launch { tado.link() } }
                         }
                     }
                     if (hasFavs) item(key = "fav") {
@@ -661,7 +677,9 @@ fun HeatingCard(state: TadoState, onLink: () -> Unit, modifier: Modifier) {
                     Txt(state.problem ?: "Loading…", 13.sp, alpha = 0.7f, shadow = false)
                 } else {
                     Txt(deg(h.current).takeIf { h.current != null } ?: "--°", 38.sp, FontWeight.Medium, lineHeight = 42.sp, shadow = false)
-                    Txt("Set to ${deg(h.target)}" + if (h.manual) " · manual" else "", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+                    val range = h.upperTarget?.let { "–${deg(it)}" }.orEmpty()
+                    val note = if (h.eco) " · eco" else if (h.manual) " · manual" else ""
+                    Txt("Set to ${deg(h.target)}$range$note", 13.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
                     Spacer(Modifier.weight(1f))
                     h.nextAt?.let {
                         Txt("NEXT ${clockTime(it)}", 11.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
