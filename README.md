@@ -26,11 +26,11 @@ One command. It needs nothing installed first.
 
 **macOS or Linux** (Terminal):
 
-    curl -fsSL https://raw.githubusercontent.com/darksn0ww/google-tv-dashboard/main/setup.sh | bash
+    curl -fsSL https://tv.brwn.is/setup.sh | bash
 
 **Windows** (PowerShell):
 
-    irm https://raw.githubusercontent.com/darksn0ww/google-tv-dashboard/main/setup.ps1 | iex
+    irm https://tv.brwn.is/setup.ps1 | iex
 
 It walks you through turning on Wireless debugging, asks for the TV's IP address, ports and
 pairing code, builds your `config.json` (saved in the folder you run it from) from questions,
