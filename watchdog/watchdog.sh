@@ -1,0 +1,56 @@
+#!/bin/sh
+# Re-arms the dashboard's Home override after a TV restart (TCL blocks it from starting itself).
+TVS="${TV_ADDRESSES:?set TV_ADDRESSES, e.g. 192.168.1.50:5555}"
+INTERVAL="${INTERVAL:-60}"
+PKG=com.home.dashboard
+SVC=$PKG/$PKG.HomeOverrideService
+LISTENER=$PKG/$PKG.MediaListener
+
+log() { echo "$(date '+%F %T') $*"; }
+sh_tv() { timeout 20 adb -s "$tv" shell "$@" </dev/null 2>/dev/null | tr -d '\r'; }
+bound() { sh_tv dumpsys accessibility | grep -m1 'Bound services' | grep -q 'Home button override'; }
+
+check() {
+  timeout 15 adb connect "$tv" >/dev/null 2>&1
+  state=$(timeout 10 adb -s "$tv" get-state 2>&1)
+  case $state in
+    device) ;;
+    *unauthorized*) log "$tv: accept the debugging prompt on the TV (tick Always allow)"; return ;;
+    *) return ;; # off or unreachable
+  esac
+  [ "$(sh_tv getprop sys.boot_completed)" = 1 ] || return
+  bound && return
+
+  # Only step in on a home screen, so nothing being watched is interrupted.
+  front=$(sh_tv dumpsys activity activities | grep -m1 topResumedActivity)
+  case $front in
+    *com.google.android.apps.tv.launcherx*|*$PKG*) ;;
+    *) return ;;
+  esac
+
+  log "$tv: Home override is off, re-arming"
+  sh_tv am start -n $PKG/.MainActivity >/dev/null
+  sleep 5
+  others=$(sh_tv settings get secure enabled_accessibility_services | tr ':' '\n' | grep -v -e "^$SVC\$" -e '^null$' | grep . | paste -s -d: -)
+  if [ -n "$others" ]; then sh_tv settings put secure enabled_accessibility_services "$others"
+  else sh_tv settings delete secure enabled_accessibility_services >/dev/null; fi
+  sh_tv settings put secure accessibility_enabled 0
+  sleep 2
+  sh_tv settings put secure enabled_accessibility_services "${others:+$others:}$SVC"
+  sh_tv settings put secure accessibility_enabled 1
+  sleep 3
+  # "Continue watching" listener: restart it, only if you had already allowed it.
+  if sh_tv settings get secure enabled_notification_listeners | grep -q "$LISTENER"; then
+    sh_tv cmd notification disallow_listener $LISTENER
+    sleep 1
+    sh_tv cmd notification allow_listener $LISTENER
+  fi
+  if bound; then log "$tv: re-armed"; else log "$tv: still off, will retry"; fi
+}
+
+log "watching: $TVS (every ${INTERVAL}s)"
+while true; do
+  for tv in $TVS; do check; done
+  [ -n "$ONCE" ] && break
+  sleep "$INTERVAL"
+done

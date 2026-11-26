@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Home</string>
+    <string name="a11y_label">Home button override</string>
+    <string name="a11y_desc">Opens the Home dashboard when the Home button is pressed instead of the Google TV home screen. Only the Home button is acted on. Also presses Start now when the clock is selected for the ambient screensaver.</string>
+</resources>

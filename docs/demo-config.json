@@ -1,0 +1,14 @@
+{
+  "place": "London",
+  "latitude": 51.5072,
+  "longitude": -0.1276,
+  "unsplashKey": "",
+  "unsplashQueries": ["landscape", "architecture", "cityscape"],
+  "wallpaperMinutes": 10,
+  "calendars": [],
+  "cameras": [],
+  "favourites": ["com.plexapp.android", "com.apple.atve.androidtv.appletv", "com.google.android.youtube.tv", "com.google.android.youtube.tvmusic", "com.spotify.tv.android"],
+  "hidden": ["com.ubnt.unifi.protect", "io.privado.android", "com.rma.speedtesttv"],
+  "tado": true,
+  "tadoZone": ""
+}

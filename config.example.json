@@ -1,0 +1,14 @@
+{
+  "place": "Your town",
+  "latitude": 51.5,
+  "longitude": -0.12,
+  "unsplashKey": "YOUR_UNSPLASH_ACCESS_KEY",
+  "unsplashQueries": ["landscape", "architecture", "cityscape"],
+  "wallpaperMinutes": 10,
+  "calendars": ["webcal://example.com/your-calendar.ics"],
+  "cameras": [{"name": "Front", "url": "rtsps://PROTECT_IP:7441/LOW_STREAM_ID?enableSrtp", "hd": "rtsps://PROTECT_IP:7441/HIGH_STREAM_ID?enableSrtp"}],
+  "favourites": ["com.plexapp.android", "com.google.android.youtube.tv"],
+  "hidden": [],
+  "tado": true,
+  "tadoZone": ""
+}

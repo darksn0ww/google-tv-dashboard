@@ -1,0 +1,13 @@
+services:
+  tv-watchdog:
+    build: .
+    restart: unless-stopped
+    environment:
+      TV_ADDRESSES: "192.168.1.50:5555" # space-separated
+      INTERVAL: "60"
+      TZ: Europe/London
+    volumes:
+      # The container's adb key. Keep it: whoever holds it can control the TV.
+      - adb-keys:/root/.android
+volumes:
+  adb-keys:
