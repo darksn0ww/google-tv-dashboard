@@ -11,6 +11,8 @@
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     $Release = 'https://github.com/darksn0ww/google-tv-dashboard/releases/latest/download'
+    # SHA-256 of the certificate that signs published releases (also in the README).
+    $Signer = '968e4cb1a2a7f0c2831ac7c7f014c34a99d87559e0bc61ff30a6a5aad8943a39'
     $Pkg = 'com.home.dashboard'
     $Service = "$Pkg/$Pkg.HomeOverrideService"
     $Listener = "$Pkg/$Pkg.MediaListener"
@@ -64,6 +66,7 @@
     function Adb {
         $ErrorActionPreference = 'Continue'
         (& $script:AdbPath @args 2>&1 | ForEach-Object { "$_" }) -join "`n"
+        $script:AdbExit = $LASTEXITCODE
     }
     function Tv { Adb -s $script:Serial shell @args }
 
@@ -146,10 +149,50 @@
         foreach ($f in (Join-Path $here 'config.json'), (Join-Path $here 'wallpaper.img'), $settingsFile) {
             if ($f -and (Test-Path -LiteralPath $f)) { Copy-Item -LiteralPath $f -Destination $dir -Force }
         }
-        Write-Host "  Saved to $dir`n  It can hold private links and keys: keep it to yourself."
+        Write-Host "  Saved to $dir`n  WARNING: it can hold your tokens and private links. Windows doesn't restrict who on this`n  PC can read it. Don't keep it in a synced folder such as OneDrive, and delete old backups."
     }
 
     # ---------- App ----------
+
+    # Fails unless every certificate the APK is signed with is the published one. It reads the APK
+    # Signing Block; Android itself checks, at install, that the signature matches that certificate.
+    function Test-Signer($path) {
+        try {
+            $b = [IO.File]::ReadAllBytes($path)
+            function U32($at) { [long][BitConverter]::ToUInt32($b, [int]$at) }
+            function U64($at) { [long][BitConverter]::ToUInt64($b, [int]$at) }
+            $eocd = $b.Length - 22
+            if ((U32 $eocd) -ne 101010256) { return $false }
+            $cd = U32 ($eocd + 16)
+            if ([Text.Encoding]::ASCII.GetString($b, [int]($cd - 16), 16) -cne 'APK Sig Block 42') { return $false }
+            $size = U64 ($cd - 24)
+            $block = $cd - $size - 8
+            if ($block -lt 0 -or (U64 $block) -ne $size) { return $false }
+            $pos = $block + 8
+            $end = $cd - 24
+            $count = 0
+            $sha = [Security.Cryptography.SHA256]::Create()
+            while ($pos -lt $end) {
+                $len = U64 $pos
+                if ($len -lt 4 -or $len -gt $end - $pos) { return $false }
+                # signature schemes v2, v3 and v3.1
+                if (@(1896449818, 4031998144, 462663009) -contains (U32 ($pos + 8))) {
+                    $at = $pos + 16
+                    $stop = $at + (U32 ($pos + 12))
+                    if ($stop -gt $pos + 8 + $len) { return $false }
+                    while ($at -lt $stop) {
+                        $cert = $at + 12 + (U32 ($at + 8)) + 4 # past the digests and the certificate list's length
+                        $hash = $sha.ComputeHash($b, [int]($cert + 4), [int](U32 $cert))
+                        if ((($hash | ForEach-Object { $_.ToString('x2') }) -join '') -ne $Signer) { return $false }
+                        $count++
+                        $at += 4 + (U32 $at)
+                    }
+                }
+                $pos += 8 + $len
+            }
+            return $count -gt 0
+        } catch { return $false }
+    }
 
     function Get-Apk($folder) {
         Step 'Downloading the latest release'
@@ -161,7 +204,8 @@
         if (-not (Select-String -Path $sums -Pattern "^$hash .*tv-dashboard\.apk" -Quiet)) {
             throw "The download doesn't match its published checksum; nothing was installed."
         }
-        Write-Host '  Checksum OK.'
+        if (-not (Test-Signer $apk)) { throw "The download isn't signed with this project's key; nothing was installed." }
+        Write-Host '  Checksum and signature OK.'
         $apk
     }
 
@@ -345,11 +389,12 @@
             else { Write-Host "  No wallpaper.img next to the settings; keeping what's on the TV." }
         }
         Adb -s $script:Serial push $path "$dest/config.json" | Out-Null
+        if ($script:AdbExit -ne 0) { throw "Couldn't copy the settings to the TV." }
         Tv am force-stop $Pkg | Out-Null # the app moves the file into private storage when it starts
         Start-Sleep 1
         Start-App
         Start-Sleep 4
-        if ((Tv ls $dest) -match 'config\.json') { Write-Host '  Settings NOT imported; open the app on the TV.' }
+        if ((Tv ls $dest) -match 'config\.json') { Write-Host '  Settings NOT imported: check config.json for mistakes. The TV keeps its old ones.' }
         else { Write-Host '  Settings imported.' }
     }
 

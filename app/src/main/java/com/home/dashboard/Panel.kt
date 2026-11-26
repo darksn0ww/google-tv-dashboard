@@ -250,7 +250,7 @@ private fun SidePanel(m: PanelModel, sizing: Modifier, initial: Modifier, onExpa
                     Txt(h.zone, 15.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
                     Txt(heatingLine(h), 13.sp, FontWeight.SemiBold, color = tint(h, Color.White), shadow = false)
                     val extra = listOfNotNull(
-                        h.nextAt?.let { "Next ${clock(it)} → ${deg(h.nextTarget)}" },
+                        h.nextAt?.let { "Next ${clockTime(it)} → ${deg(h.nextTarget)}" },
                         h.humidity?.let { "${it.roundToInt()}% humidity" },
                     ).joinToString(" · ")
                     Txt(m.stale?.let { "Stale · $it" } ?: extra, 12.sp, color = Dim, maxLines = 1, shadow = false)
@@ -323,7 +323,7 @@ private fun FullHome(m: PanelModel, sizing: Modifier, onShrink: () -> Unit) {
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        h.nextAt?.let { Line("Next", "${clock(it)} → ${deg(h.nextTarget)}") }
+                        h.nextAt?.let { Line("Next", "${clockTime(it)} → ${deg(h.nextTarget)}") }
                         h.humidity?.let { Line("Humidity", "${it.roundToInt()}%") }
                         m.stale?.let { Line("Stale", it) }
                     }
@@ -382,9 +382,6 @@ private fun heatingLine(h: Heating) = when {
     h.target != null && h.cooling -> "Cooling to ${deg(h.upperTarget ?: h.target)}"
     else -> setting(h)
 } + if (h.boost) " · boost" else ""
-
-private fun clock(millis: Long): String = java.time.Instant.ofEpochMilli(millis)
-    .atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 
 /** A read-only gauge over the thermostat's own range. */
 @Composable

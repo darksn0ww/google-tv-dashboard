@@ -3,7 +3,6 @@ package com.home.dashboard
 import android.content.Context
 import android.content.Intent
 import android.media.tv.TvInputManager
-import android.net.Uri
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
@@ -13,6 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.net.URI
 import java.net.URLEncoder
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -27,15 +27,20 @@ data class Camera(val name: String, val url: String, val hd: String = "") {
     val streamUrl: String get() = plain(url)
     val hdStreamUrl: String get() = plain(hd.ifBlank { url })
 
-    /** UniFi Protect gives rtsps://host:7441/<id>?enableSrtp; Media3 needs the plain RTSP alias on 7447. */
+    /**
+     * UniFi Protect gives rtsps://host:7441/<id>?enableSrtp; Media3 needs its plain RTSP alias on 7447.
+     * Any other link is used exactly as written.
+     */
     private fun plain(link: String): String {
-        val u = Uri.parse(link)
-        return if (u.scheme.equals("rtsps", true)) "rtsp://${u.host}:7447${u.path}" else link
+        val u = runCatching { URI(link) }.getOrNull() ?: return link
+        val protect = u.scheme.equals("rtsps", true) && u.port == 7441 && u.query.orEmpty().contains("enableSrtp")
+        return if (protect) "rtsp://${u.host}:7447${u.rawPath}" else link
     }
 }
 
 data class Config(
     val loaded: Boolean = false,
+    val problem: String = "", // shown on screen when the settings file is bad
     val place: String = "",
     val unsplashKey: String = "",
     val wallpaper: String = "", // your own picture instead: a web link, or "file" for the one installed with the settings
@@ -56,19 +61,40 @@ data class Config(
 ) {
     companion object {
         fun load(ctx: Context): Config {
-            val f = File(ctx.filesDir, "config.json")
-            // deploy.sh drops a new config in the app's external dir; move it into private storage.
+            val stored = File(ctx.filesDir, "config.json")
+            var problem = ""
+            // The scripts drop new files in the app's external dir; move them into private storage.
             ctx.getExternalFilesDir(null)?.let { dir ->
-                listOf("config.json" to f, "wallpaper" to File(ctx.filesDir, "wallpaper")).forEach { (name, target) ->
-                    val incoming = File(dir, name)
-                    if (incoming.exists()) runCatching { incoming.copyTo(target, overwrite = true); incoming.delete() }
+                val picture = File(dir, "wallpaper")
+                if (picture.exists()) runCatching {
+                    picture.copyTo(File(ctx.filesDir, "wallpaper"), overwrite = true)
+                    picture.delete()
+                }
+                if (!accept(File(dir, "config.json"), stored)) {
+                    problem = "The new config.json couldn't be read, so the previous settings are still in use"
                 }
             }
-            if (!f.exists()) return Config(loaded = true)
-            val config = runCatching { parse(JSONObject(f.readText())) }.getOrDefault(Config(loaded = true))
+            val config = if (!stored.exists()) Config(loaded = true) else runCatching { parse(JSONObject(stored.readText())) }
+                .getOrElse {
+                    problem = "config.json couldn't be read"
+                    Config(loaded = true)
+                }
             // Heating now comes from Home Assistant: don't keep an unused tado sign-in around.
             if (!config.homeAssistant?.climate.isNullOrBlank()) File(ctx.filesDir, "tado.json").delete()
-            return config
+            return config.copy(problem = problem)
+        }
+
+        /**
+         * Moves [incoming] over [stored] only if it can be read as settings. A bad file is left where
+         * it is, which is how the setup scripts know it wasn't imported.
+         */
+        fun accept(incoming: File, stored: File): Boolean {
+            if (!incoming.exists()) return true
+            return runCatching {
+                parse(JSONObject(incoming.readText()))
+                incoming.copyTo(stored, overwrite = true)
+                incoming.delete()
+            }.isSuccess
         }
 
         private fun JSONArray?.strings(): List<String> =
@@ -254,7 +280,7 @@ object Locator {
 
 // ---------- Unsplash ----------
 
-data class Photo(val id: String, val url: String, val author: String, val downloadLocation: String)
+data class Photo(val url: String, val author: String, val downloadLocation: String)
 
 object Unsplash {
     private fun auth(key: String) = mapOf("Authorization" to "Client-ID $key", "Accept-Version" to "v1")
@@ -267,7 +293,6 @@ object Unsplash {
         return (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
             Photo(
-                id = o.getString("id"),
                 url = o.getJSONObject("urls").getString("raw") + "&w=1920&h=1080&fit=crop&crop=entropy&q=82&fm=jpg",
                 author = o.getJSONObject("user").getString("name"),
                 downloadLocation = o.getJSONObject("links").getString("download_location"),
@@ -285,14 +310,10 @@ object Unsplash {
 
 data class AppEntry(val pkg: String, val label: String, val banner: ImageBitmap?, val icon: ImageBitmap?, val intent: Intent)
 data class InputEntry(val id: String, val label: String)
-data class AppsData(
-    val favourites: List<AppEntry> = emptyList(),
-    val inputs: List<InputEntry> = emptyList(),
-    val others: List<AppEntry> = emptyList(),
-)
+data class AppsData(val all: List<AppEntry> = emptyList(), val inputs: List<InputEntry> = emptyList())
 
 object Apps {
-    fun load(ctx: Context, cfg: Config): AppsData {
+    fun load(ctx: Context): AppsData {
         val pm = ctx.packageManager
         val ris = pm.queryIntentActivities(
             Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0,
@@ -311,10 +332,6 @@ object Apps {
                         .setClassName(ai.packageName, ai.name),
                 )
             }
-        val byPkg = all.associateBy { it.pkg }
-        val favs = cfg.favourites.mapNotNull { byPkg[it] }
-        val others = all.filter { it.pkg !in cfg.favourites && it.pkg !in cfg.hidden }
-            .sortedBy { it.label.lowercase() }
         val inputs = runCatching {
             val tim = ctx.getSystemService(TvInputManager::class.java)
             tim.tvInputList
@@ -326,6 +343,6 @@ object Apps {
                 }
                 .sortedBy { it.label }
         }.getOrDefault(emptyList())
-        return AppsData(favs, inputs, others)
+        return AppsData(all, inputs)
     }
 }

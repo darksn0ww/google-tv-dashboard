@@ -18,12 +18,12 @@ camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) b
 
 ## Features
 
-- **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant)
-  or [Google Nest](#google-nest-thermostat-experimental) and a merged calendar from any number of iCal / webcal links
+- **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant),
+  [tado°](#heating-straight-from-tado) or [Google Nest](#google-nest-thermostat-experimental), and a merged calendar
+  from any number of iCal / webcal links, or a plain month view
 - **Weather and calendar screens:** select either widget for the next 12 hours and 10 days of
-  weather (move down the days for each one's details), or the
-  next 30 days with event dots and details
-- **Wallpaper:** random photos from Unsplash
+  weather (move down the days for each one's details), or the next 30 days with event dots and details
+- **Wallpaper:** random photos from Unsplash, or your own picture
 - **Apps:** a favourites row, every other app, and physical inputs on TVs that have them. Hold OK on
   an app to rearrange: tiles wobble, and you can move, remove and add favourites
 - **Home and Back:** both return to the first favourite
@@ -50,21 +50,38 @@ One command. It needs nothing installed first.
 It walks you through turning on Wireless debugging, asks for the TV's IP address, ports and
 pairing code, builds your `config.json` (saved in the folder you run it from) from questions,
 installs the latest release and switches it on. It can also change when the TV's screensaver
-starts, or turn it off. If `adb` is missing it offers to download it
-from Google. Run it again to update.
+starts, or turn it off. If `adb` is missing it offers to download it from Google. Run it again
+to update.
 
 To install your own build or reuse settings: `bash setup.sh --apk my.apk --config config.json`,
-or on Windows set `$env:TVD_APK` and `$env:TVD_CONFIG` first.
+or on Windows set `$env:TVD_APK` and `$env:TVD_CONFIG` first. On macOS or Linux, once paired,
+`bash setup.sh --tv <ip:port>` updates without asking anything (it skips the backup).
 
 Running a script straight from the internet means trusting it: you can download and read
 [setup.sh](setup.sh) or [setup.ps1](setup.ps1) first.
+
+## Checking a download
+
+Releases can't be altered once published, and every APK is signed with the same key. Its
+certificate's SHA-256 fingerprint is:
+
+    968e4cb1a2a7f0c2831ac7c7f014c34a99d87559e0bc61ff30a6a5aad8943a39
+
+The setup scripts refuse a downloaded APK that isn't signed with it. To check one yourself:
+
+    apksigner verify --print-certs tv-dashboard.apk
+
+This protects against a swapped APK, not against someone who can change the setup script itself.
+Immutability applies to releases from 1.3.2.
 
 ## Back up and restore
 
 The setup scripts back up before changing anything, into `tv-dashboard-backup-<date>/` in the
 folder you run them from: the TV settings they touch (as ready-to-run commands in `restore.txt`),
-the list of installed apps, the previous version of the dashboard, and your `config.json`. Keep
-that folder private. What can't be saved is data inside the app, such as "Continue watching"
+the list of installed apps, the previous version of the dashboard, and your `config.json`.
+
+**That folder can contain your tokens and private links.** Don't share or sync it (Windows doesn't
+restrict who on the PC can read it), and delete backups you no longer need. What can't be saved is data inside the app, such as "Continue watching"
 and favourites rearranged on the TV.
 
 To back up by hand before installing:
@@ -94,20 +111,20 @@ uninstall, then `adb install previous-app.apk`.
 
 You need [`adb`](https://developer.android.com/tools/releases/platform-tools) on a Mac or Linux computer.
 
-1. Download `tv-dashboard.apk`, `install.sh` and `config.example.json` from the
+1. Download `tv-dashboard.apk`, `setup.sh` and `config.example.json` from the
    [latest release](../../releases/latest).
 2. On the TV, turn on Developer options and Wireless debugging, then `adb pair` and `adb connect`.
 3. Copy `config.example.json` to `config.json`, edit it, and run:
 
-       bash install.sh <tv-ip:port> tv-dashboard.apk config.json
+       bash setup.sh --tv <tv-ip:port> --apk tv-dashboard.apk --config config.json
 
-To update, run the same command with the new APK and leave out `config.json`.
-Installing the app switches on an accessibility service (see [Permissions](#permissions)).
+To update, run the same command with the new APK and leave out `--config`.
+This switches on an accessibility service (see [Permissions](#permissions)).
 
 ## Requirements to build from source
 
 - A Google TV / Android TV device (Android 9 or later) with Wireless debugging
-- JDK 17, the Android SDK (platform 34) and `adb`. The deploy script is written for zsh.
+- JDK 17, the Android SDK (platform 34) and `adb`. `deploy.sh` is written for zsh.
 
 ## Build and install
 
@@ -128,7 +145,8 @@ computer needs the same key.
 ## Settings
 
 `config.json` is imported into the app's private storage and is git-ignored. **Never commit it**:
-it holds your API key and private links.
+it holds your API key and private links. If a new file can't be read, the TV keeps the old
+settings and says so on screen. [config.example.json](config.example.json) shows every key.
 
 | Key | Meaning |
 | --- | --- |
@@ -143,10 +161,11 @@ it holds your API key and private links.
 | `favourites`, `hidden` | Package names to pin or hide |
 | `homeAssistant` | Heating and the smart home panel through [Home Assistant](#heating-from-home-assistant) |
 | `tado`, `tadoZone` | Or ask [tado](#heating-straight-from-tado) directly, and which room |
-| `nest` | Or ask [Google Nest](#google-nest-thermostat-experimental) directly; written by `tools/nest-auth.py` |
+| `nest` | Or ask [Google Nest](#google-nest-thermostat-experimental) directly; written by the setup script |
 
-**Cameras:** UniFi Protect `rtsps://…:7441` links are converted to Protect's plain RTSP port
-7447, so video is unencrypted on your local network.
+**Cameras:** UniFi Protect links (`rtsps://…:7441/…?enableSrtp`) are converted to Protect's plain
+RTSP port 7447, so that video is unencrypted on your local network. Other links are used exactly
+as written; the player supports `rtsp://` (including `user:password@`), not `rtsps://`.
 
 ## Choosing where heating comes from
 
@@ -277,8 +296,8 @@ You need your own credentials:
    **publish the app to production**. Left in testing, sign-ins can stop working after 7 days.
 4. In the [Device Access console](https://console.nest.google.com/device-access), create a project
    using that OAuth client ID. Note the project ID.
-5. On your computer, run `python3 tools/nest-auth.py config.json` and follow the prompts.
-6. Deploy with the updated `config.json`. Set `nest.room` to choose between several thermostats.
+5. Run the [setup script](#quick-setup), create new settings and choose **Google Nest**. It signs
+   you in and writes the `nest` block. Add `nest.room` to choose between several thermostats.
 
 See Google's [authorisation guide](https://developers.google.com/nest/device-access/authorize).
 The secret and token are stored in `config.json` and the app's private storage: keep them private.
@@ -293,7 +312,7 @@ The secret and token are stored in `config.json` and the app's private storage: 
 ## Known limits
 
 - Some TVs (TCL, for one) block auto-start, so after a restart Google TV's home returns. Run
-  `NO_INSTALL=1 ./deploy.sh <tv-ip:port>`, or use the [watchdog container](watchdog/).
+  `bash setup.sh --tv <tv-ip:port> --enable-only`, or use the [watchdog container](watchdog/).
 - "Continue watching" only knows what apps report. Some give no artwork or episode number, and
   selecting a card opens the app, not the episode.
 - On modest TV graphics chips, keep full-screen blending to a minimum: it is why the wallpaper

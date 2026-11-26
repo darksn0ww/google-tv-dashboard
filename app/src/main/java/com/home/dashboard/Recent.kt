@@ -23,7 +23,6 @@ data class Recent(
     val art: String, // file path or http(s) url, may be blank
     val position: Long,
     val duration: Long,
-    val updated: Long,
 ) {
     val id get() = "$pkg|$title|$subtitle"
     val progress: Float get() = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
@@ -53,7 +52,7 @@ object RecentStore {
                 val o = a.getJSONObject(it)
                 Recent(
                     o.getString("pkg"), o.getString("title"), o.optString("subtitle"), o.optString("art"),
-                    o.optLong("position"), o.optLong("duration"), o.optLong("updated"),
+                    o.optLong("position"), o.optLong("duration"),
                 )
             }
         }.getOrDefault(emptyList())
@@ -65,7 +64,7 @@ object RecentStore {
         list.forEach {
             a.put(
                 JSONObject().put("pkg", it.pkg).put("title", it.title).put("subtitle", it.subtitle).put("art", it.art)
-                    .put("position", it.position).put("duration", it.duration).put("updated", it.updated),
+                    .put("position", it.position).put("duration", it.duration),
             )
         }
         runCatching { file(ctx).writeText(a.toString()) }
@@ -113,7 +112,7 @@ object RecentStore {
         }
         val previous = items.value.firstOrNull { it.id == id }
         val art = previous?.art?.takeIf { it.isNotEmpty() } ?: artFor(ctx, id, md)
-        val entry = Recent(pkg, title, subtitle, art, position, duration, System.currentTimeMillis())
+        val entry = Recent(pkg, title, subtitle, art, position, duration)
         save(ctx, (listOf(entry) + others).take(MAX_ITEMS))
     }
 

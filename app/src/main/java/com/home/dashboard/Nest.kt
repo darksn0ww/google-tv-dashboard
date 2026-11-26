@@ -6,7 +6,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
 
-/** Credentials for Google's Smart Device Management API; create them with tools/nest-auth.py. */
+/** Credentials for Google's Smart Device Management API; the setup scripts create them. */
 data class NestConfig(
     val projectId: String,
     val clientId: String,

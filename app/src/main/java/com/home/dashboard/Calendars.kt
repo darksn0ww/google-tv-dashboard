@@ -30,11 +30,25 @@ object Calendars {
     private val dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
     private val local: ZoneId get() = ZoneId.systemDefault()
 
-    fun fetchAll(urls: List<String>, from: ZonedDateTime, to: ZonedDateTime): List<CalEvent> =
-        urls.flatMapIndexed { i, u ->
-            val https = u.trim().replaceFirst(Regex("^webcals?://", RegexOption.IGNORE_CASE), "https://")
-            parse(Net.get(https), palette[i % palette.size], from, to)
-        }.sortedWith(compareBy<CalEvent>({ it.start }, { !it.allDay }))
+    data class Result(val events: List<CalEvent>, val failed: Int)
+
+    /** A calendar that can't be read keeps its [last] events and doesn't affect the others. */
+    fun fetchAll(
+        urls: List<String>, from: ZonedDateTime, to: ZonedDateTime, last: MutableMap<String, List<CalEvent>>,
+        get: (String) -> String = { Net.get(it) },
+    ): Result {
+        var failed = 0
+        val events = urls.flatMapIndexed { i, u ->
+            runCatching {
+                val https = u.trim().replaceFirst(Regex("^webcals?://", RegexOption.IGNORE_CASE), "https://")
+                parse(get(https), palette[i % palette.size], from, to)
+            }.onSuccess { last[u] = it }.getOrElse {
+                failed++
+                last[u].orEmpty()
+            }
+        }
+        return Result(events.sortedWith(compareBy<CalEvent>({ it.start }, { !it.allDay })), failed)
+    }
 
     private class Prop(val name: String, val params: Map<String, String>, val value: String)
 

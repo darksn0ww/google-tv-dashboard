@@ -1,5 +1,5 @@
 # One-file version of the watchdog for Arcane (paste as a new project).
-# Generated from watchdog.sh; edit that and regenerate rather than editing the script here.
+# The script below is generated: edit watchdog.sh, then run bash build-arcane.sh.
 services:
   tv-watchdog:
     image: tv-watchdog:local
@@ -36,7 +36,8 @@ configs:
 
       log() { echo "$$(date '+%F %T') $$*"; }
       sh_tv() { timeout 20 adb -s "$$tv" shell "$$@" </dev/null 2>/dev/null | tr -d '\r'; }
-      bound() { sh_tv dumpsys accessibility | grep -m1 'Bound services' | grep -q 'Home button override'; }
+      # Android lists each bound service on its own line, so don't look only at the first.
+      bound() { sh_tv dumpsys accessibility | grep -q 'label=Home button override'; }
 
       check() {
         timeout 15 adb connect "$$tv" >/dev/null 2>&1

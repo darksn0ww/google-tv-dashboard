@@ -8,7 +8,8 @@ LISTENER=$PKG/$PKG.MediaListener
 
 log() { echo "$(date '+%F %T') $*"; }
 sh_tv() { timeout 20 adb -s "$tv" shell "$@" </dev/null 2>/dev/null | tr -d '\r'; }
-bound() { sh_tv dumpsys accessibility | grep -m1 'Bound services' | grep -q 'Home button override'; }
+# Android lists each bound service on its own line, so don't look only at the first.
+bound() { sh_tv dumpsys accessibility | grep -q 'label=Home button override'; }
 
 check() {
   timeout 15 adb connect "$tv" >/dev/null 2>&1

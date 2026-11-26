@@ -4,6 +4,11 @@
 #
 #   curl -fsSL <address of this script> | bash
 #   bash setup.sh [--apk my-build.apk] [--config config.json]
+#
+# With a TV this computer is already paired with, it can run without questions:
+#
+#   bash setup.sh --tv <ip:port> [--apk my-build.apk] [--config config.json]
+#   bash setup.sh --tv <ip:port> --enable-only      only switch the Home button back on
 set -u
 
 REPO=darksn0ww/google-tv-dashboard
@@ -12,6 +17,9 @@ PKG=com.home.dashboard
 SERVICE=$PKG/$PKG.HomeOverrideService
 LISTENER=$PKG/$PKG.MediaListener
 CACHE=${TVD_CACHE:-$HOME/.tv-dashboard}
+# SHA-256 of the certificate that signs published releases (also in the README).
+SIGNER=968e4cb1a2a7f0c2831ac7c7f014c34a99d87559e0bc61ff30a6a5aad8943a39
+AUTO="" # set by --tv: ask nothing
 
 die() { echo "$*" >&2; exit 1; }
 step() { printf '\n== %s\n' "$1" >&2; }
@@ -58,6 +66,7 @@ find_adb() {
       [ "$(uname -m)" = x86_64 ] || die "Install adb with your package manager (e.g. sudo apt install adb), then run this again." ;;
     *) die "On Windows use setup.ps1 instead." ;;
   esac
+  [ -z "$AUTO" ] || die "adb wasn't found. Install it, or run without --tv to be offered a download."
   say "adb (Google's Android tool) isn't installed."
   say "It can be downloaded from Google into $CACHE (licence: https://developer.android.com/studio/terms)."
   yes_no "Download it?" || die "Install adb, then run this again."
@@ -162,7 +171,8 @@ backup() { # [settings file in use]
     if [ -n "$f" ] && [ -f "$f" ]; then cp "$f" "$dir/" || die "Couldn't copy $f; nothing was changed."; fi
   done
   say "  Saved to $dir
-  It can hold private links and keys: keep it to yourself."
+  WARNING: it can hold your tokens and private links. Don't share or sync it, and delete
+  backups you no longer need."
 }
 
 # ---------- App ----------
@@ -172,10 +182,52 @@ download_apk() { # folder
   curl -fsSL -o "$1/tv-dashboard.apk" "$RELEASE/tv-dashboard.apk" &&
     curl -fsSL -o "$1/SHA256SUMS.txt" "$RELEASE/SHA256SUMS.txt" ||
     die "Download failed. Download the APK yourself and use --apk."
-  local sum
-  if command -v shasum >/dev/null; then sum=$(shasum -a 256 "$1/tv-dashboard.apk"); else sum=$(sha256sum "$1/tv-dashboard.apk"); fi
-  grep -q "^${sum%% *} .*tv-dashboard.apk" "$1/SHA256SUMS.txt" || die "The download doesn't match its published checksum; nothing was installed."
-  say "  Checksum OK."
+  grep -q "^$(sha256 <"$1/tv-dashboard.apk") .*tv-dashboard.apk" "$1/SHA256SUMS.txt" ||
+    die "The download doesn't match its published checksum; nothing was installed."
+  signed_by_us "$1/tv-dashboard.apk" || die "The download isn't signed with this project's key; nothing was installed."
+  say "  Checksum and signature OK."
+}
+
+# ---------- Signature ----------
+
+sha256() { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi | cut -d' ' -f1; }
+number() { od -An -j "$2" -N "$3" -tu"$3" "$1" | tr -d ' \n'; } # file offset bytes: a little-endian number
+
+# Fails unless every certificate the APK is signed with is the published one. It reads the APK
+# Signing Block; Android itself checks, at install, that the signature matches that certificate.
+signed_by_us() { # apk
+  local f=$1 size eocd cd block pos end len id signer signers_end cert_at digests count=0 sum
+  size=$(($(wc -c <"$f")))
+  eocd=$((size - 22))
+  [ "$eocd" -gt 0 ] && [ "$(number "$f" $eocd 4)" = 101010256 ] || return 1
+  cd=$(number "$f" $((eocd + 16)) 4)
+  [ "$(tail -c +$((cd - 15)) "$f" | head -c 16)" = "APK Sig Block 42" ] || return 1
+  len=$(number "$f" $((cd - 24)) 8)
+  block=$((cd - len - 8))
+  [ "$block" -ge 0 ] && [ "$(number "$f" $block 8)" = "$len" ] || return 1
+  pos=$((block + 8))
+  end=$((cd - 24))
+  while [ "$pos" -lt "$end" ]; do
+    len=$(number "$f" $pos 8)
+    [ "$len" -ge 4 ] && [ "$len" -le $((end - pos)) ] || return 1
+    id=$(number "$f" $((pos + 8)) 4)
+    case $id in
+      1896449818 | 4031998144 | 462663009) # signature schemes v2, v3 and v3.1
+        signer=$((pos + 16))
+        signers_end=$((signer + $(number "$f" $((pos + 12)) 4)))
+        [ "$signers_end" -le $((pos + 8 + len)) ] || return 1
+        while [ "$signer" -lt "$signers_end" ]; do
+          digests=$(number "$f" $((signer + 8)) 4)
+          cert_at=$((signer + 12 + digests + 4)) # past the digests and the certificate list's length
+          sum=$(tail -c +$((cert_at + 5)) "$f" | head -c "$(number "$f" $cert_at 4)" | sha256)
+          [ "$sum" = "$SIGNER" ] || return 1
+          count=$((count + 1))
+          signer=$((signer + 4 + $(number "$f" $signer 4)))
+        done ;;
+    esac
+    pos=$((pos + 8 + len))
+  done
+  [ "$count" -gt 0 ]
 }
 
 # ---------- Settings ----------
@@ -450,7 +502,8 @@ push_config() {
   sleep 1
   start_app
   sleep 4
-  if tv ls $dest | grep -q config.json; then say "  Settings NOT imported; open the app on the TV."; else say "  Settings imported."; fi
+  if tv ls $dest | grep -q config.json; then say "  Settings NOT imported: check config.json for mistakes. The TV keeps its old ones."
+  else say "  Settings imported."; fi
 }
 
 enable_home_button() { # keeps any other accessibility services you use
@@ -470,30 +523,83 @@ enable_home_button() { # keeps any other accessibility services you use
   return 1
 }
 
+fetch_apk() { # sets apk to a checked download
+  WORK=$(mktemp -d) || die "Couldn't make a temporary folder."
+  trap 'rm -rf "$WORK"' EXIT
+  download_apk "$WORK"
+  apk=$WORK/tv-dashboard.apk
+}
+
+install_app() { # apk
+  step "Installing"
+  local result
+  result=$(adb_ -s "$SERIAL" install -r "$1")
+  case $result in
+    *Success*) ;;
+    *UPDATE_INCOMPATIBLE*) die "$result
+The installed copy was signed with a different key. Uninstall it first (this removes its
+settings and sign-ins): adb uninstall $PKG" ;;
+    *) die "Install failed: $result" ;;
+  esac
+  tv cmd package compile -m speed -f $PKG >/dev/null
+  start_app # a freshly installed app's services won't bind until it has run once
+  sleep 3
+}
+
+# Restarts "Continue watching" if it was already allowed; fails if it never was.
+restart_listener() {
+  tv settings get secure enabled_notification_listeners | grep -q $LISTENER || return 1
+  tv cmd notification disallow_listener $LISTENER >/dev/null
+  sleep 1
+  tv cmd notification allow_listener $LISTENER >/dev/null
+}
+
+unattended() { # apk config enable-only
+  local apk=$1
+  find_adb
+  adb_ connect "$SERIAL" >/dev/null
+  [ "$(adb_ -s "$SERIAL" get-state | tr -d '\r')" = device ] || die "Can't connect to $SERIAL. Run without --tv to pair."
+  if [ -z "$3" ]; then
+    [ -n "$apk" ] || fetch_apk
+    install_app "$apk"
+  fi
+  [ -z "$2" ] || push_config "$2"
+  enable_home_button || die "home override: NOT bound"
+  restart_listener || true
+  start_app
+  say "home override: bound"
+}
+
 main() {
-  local apk="" config=""
+  local apk="" config="" tv_address="" enable_only=""
+  local usage="usage: setup.sh [--apk file.apk] [--config config.json] [--tv ip:port [--enable-only]]"
   while [ $# -gt 0 ]; do
     case $1 in
-      --apk) apk=${2:-}; shift 2 ;;
-      --config) config=${2:-}; shift 2 ;;
-      *) die "usage: setup.sh [--apk file.apk] [--config config.json]" ;;
+      --apk | --config | --tv)
+        [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value. $usage"
+        case $1 in --apk) apk=$2 ;; --config) config=$2 ;; --tv) tv_address=$2 ;; esac
+        shift 2 ;;
+      --enable-only) enable_only=1; shift ;;
+      *) die "$usage" ;;
     esac
   done
   [ -z "$apk" ] || [ -f "$apk" ] || die "No such file: $apk"
   [ -z "$config" ] || [ -f "$config" ] || die "No such file: $config"
-  { exec 3<"${TVD_INPUT:-/dev/tty}"; } 2>/dev/null || die "Run this in a terminal: it needs to ask you questions."
+  [ -z "$enable_only" ] || [ -n "$tv_address" ] || die "$usage"
   command -v curl >/dev/null || die "Please install curl first."
 
+  if [ -n "$tv_address" ]; then
+    AUTO=1
+    SERIAL=$tv_address
+    unattended "$apk" "$config" "$enable_only"
+    return
+  fi
+
+  { exec 3<"${TVD_INPUT:-/dev/tty}"; } 2>/dev/null || die "Run this in a terminal: it needs to ask you questions."
   find_adb
   connect
   backup "$config"
-
-  if [ -z "$apk" ]; then
-    WORK=$(mktemp -d) || die "Couldn't make a temporary folder."
-    trap 'rm -rf "$WORK"' EXIT
-    download_apk "$WORK"
-    apk=$WORK/tv-dashboard.apk
-  fi
+  [ -n "$apk" ] || fetch_apk
 
   if [ -z "$config" ]; then
     step "Settings"
@@ -506,20 +612,8 @@ main() {
     fi
   fi
 
-  step "Installing"
-  local result
-  result=$(adb_ -s "$SERIAL" install -r "$apk")
-  case $result in
-    *Success*) ;;
-    *UPDATE_INCOMPATIBLE*) die "$result
-The installed copy was signed with a different key. Uninstall it first (this removes its
-settings and sign-ins): adb uninstall $PKG" ;;
-    *) die "Install failed: $result" ;;
-  esac
-  tv cmd package compile -m speed -f $PKG >/dev/null
-  start_app # a freshly installed app's services won't bind until it has run once
-  sleep 3
-  [ -n "$config" ] && push_config "$config"
+  install_app "$apk"
+  [ -z "$config" ] || push_config "$config"
 
   step "Home button"
   say "  This switches on an accessibility service so Home opens the dashboard. Android sends it
@@ -529,11 +623,7 @@ settings and sign-ins): adb uninstall $PKG" ;;
   fi
 
   step "Continue watching"
-  if tv settings get secure enabled_notification_listeners | grep -q $LISTENER; then
-    tv cmd notification disallow_listener $LISTENER >/dev/null
-    sleep 1
-    tv cmd notification allow_listener $LISTENER >/dev/null
-    say "  Already allowed."
+  if restart_listener; then say "  Already allowed."
   elif yes_no "Show what you were watching? (needs notification access; notifications aren't read)"; then
     tv cmd notification allow_listener $LISTENER >/dev/null
   fi

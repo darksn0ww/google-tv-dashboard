@@ -132,6 +132,23 @@ fun Heating.withSchedule(schedule: JSONObject?, off: Boolean, now: ZonedDateTime
     return copy(nextAt = next?.first, nextTarget = next?.second)
 }
 
+fun Heating.toJson(): JSONObject = JSONObject()
+    .put("zone", zone).put("current", current).put("target", target).put("manual", manual).put("updated", updated)
+    .put("humidity", humidity).put("active", active).put("away", away).put("nextAt", nextAt).put("nextTarget", nextTarget)
+    .put("upperTarget", upperTarget).put("boost", boost).put("cooling", cooling).put("auto", auto)
+    .put("min", min).put("max", max)
+
+fun heatingFromJson(j: JSONObject): Heating {
+    fun d(k: String) = if (j.has(k)) j.getDouble(k) else null
+    return Heating(
+        zone = j.optString("zone"), current = d("current"), target = d("target"), manual = j.optBoolean("manual"),
+        updated = j.optLong("updated"), humidity = d("humidity"), active = j.optBoolean("active"),
+        away = j.optBoolean("away"), nextAt = if (j.has("nextAt")) j.getLong("nextAt") else null,
+        nextTarget = d("nextTarget"), upperTarget = d("upperTarget"), boost = j.optBoolean("boost"),
+        cooling = j.optBoolean("cooling"), auto = j.optBoolean("auto"), min = d("min") ?: 5.0, max = d("max") ?: 25.0,
+    )
+}
+
 /** Reads heating through Home Assistant, remembering the last good reading in [cache]. */
 class HaHeating(private val cfg: HaConfig, private val cache: File) {
     private val ha = HomeAssistant(cfg.url, cfg.token)
@@ -139,26 +156,12 @@ class HaHeating(private val cfg: HaConfig, private val cache: File) {
     fun cached(): Heating? = runCatching {
         val j = JSONObject(cache.readText())
         if (j.getString("entity") != cfg.climate) return null
-        fun d(k: String) = if (j.has(k)) j.getDouble(k) else null
-        Heating(
-            zone = j.getString("zone"), current = d("current"), target = d("target"),
-            manual = j.getBoolean("manual"), updated = j.getLong("updated"), humidity = d("humidity"),
-            active = j.getBoolean("active"), away = j.getBoolean("away"),
-            upperTarget = d("upperTarget"), boost = j.optBoolean("boost"), cooling = j.optBoolean("cooling"),
-            auto = j.optBoolean("auto"), min = d("min") ?: 5.0, max = d("max") ?: 25.0,
-            nextAt = if (j.has("nextAt")) j.getLong("nextAt").takeIf { it > System.currentTimeMillis() } else null,
-            nextTarget = d("nextTarget"),
-        )
+        val h = heatingFromJson(j)
+        if ((h.nextAt ?: 0) > System.currentTimeMillis()) h else h.copy(nextAt = null)
     }.getOrNull()
 
     private fun keep(h: Heating) {
-        val j = JSONObject().put("entity", cfg.climate).put("zone", h.zone).put("current", h.current)
-            .put("target", h.target).put("manual", h.manual).put("updated", h.updated)
-            .put("humidity", h.humidity).put("active", h.active).put("away", h.away)
-            .put("upperTarget", h.upperTarget).put("boost", h.boost).put("cooling", h.cooling)
-            .put("auto", h.auto).put("min", h.min).put("max", h.max)
-            .put("nextAt", h.nextAt).put("nextTarget", h.nextTarget)
-        runCatching { cache.writeText(j.toString()) }
+        runCatching { cache.writeText(h.toJson().put("entity", cfg.climate).toString()) }
     }
 
     /** Blocking; never throws for network or Home Assistant errors. */

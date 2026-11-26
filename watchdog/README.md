@@ -8,7 +8,8 @@ override back on. It only acts while the TV is showing a home screen.
 2. `docker compose up -d --build`, then `docker compose logs -f`.
 3. On the TV, accept the debugging prompt and tick **Always allow**.
 
-For managers that take a single pasted file (such as Arcane), use `arcane-compose.yaml`.
+For managers that take a single pasted file (such as Arcane), use `arcane-compose.yaml`. The
+script inside it is generated: after changing `watchdog.sh`, run `bash build-arcane.sh`.
 
 **Needs:** Wireless debugging left on, the Docker host able to reach the TV on TCP 5555, and a
 fixed address for the TV.

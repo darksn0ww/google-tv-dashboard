@@ -51,16 +51,10 @@ import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
 import java.time.temporal.WeekFields
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val Time = DateTimeFormatter.ofPattern("HH:mm", Locale.UK)
-private val LongDay = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.UK)
-private val ShortDay = DateTimeFormatter.ofPattern("EEE", Locale.UK)
-private val Month = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.UK)
-private val ShortMonth = DateTimeFormatter.ofPattern("MMM", Locale.UK)
 
 // ---------- Calendar ----------
 
@@ -96,12 +90,12 @@ fun CalendarScreen(events: List<CalEvent>, onClose: () -> Unit) {
 
     Row(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).padding(horizontal = 40.dp, vertical = 28.dp)) {
         Column(Modifier.width(520.dp)) {
-            Txt(selected.format(Month), 24.sp, FontWeight.SemiBold, shadow = false)
+            Txt(selected.format(MonthYearFmt), 24.sp, FontWeight.SemiBold, shadow = false)
             Spacer(Modifier.height(12.dp))
             Row {
                 weeks.first().forEach { d ->
                     Box(Modifier.width(74.dp), contentAlignment = Alignment.Center) {
-                        Txt(d.format(ShortDay).uppercase(), 11.sp, FontWeight.SemiBold, alpha = 0.45f, shadow = false)
+                        Txt(d.format(DowFmt).uppercase(), 11.sp, FontWeight.SemiBold, alpha = 0.45f, shadow = false)
                     }
                 }
             }
@@ -120,7 +114,7 @@ fun CalendarScreen(events: List<CalEvent>, onClose: () -> Unit) {
                                 ) {
                                     Txt(day.dayOfMonth.toString(), 16.sp, FontWeight.SemiBold, alpha = if (inRange) 1f else 0.25f, shadow = false)
                                 }
-                                if (day.dayOfMonth == 1) Txt(day.format(ShortMonth), 9.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
+                                if (day.dayOfMonth == 1) Txt(day.format(ShortMonthFmt), 9.sp, FontWeight.SemiBold, alpha = 0.6f, shadow = false)
                                 Spacer(Modifier.height(4.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                     dots.forEach { Box(Modifier.size(6.dp).background(Color(it), CircleShape)) }
@@ -157,7 +151,7 @@ fun CalendarScreen(events: List<CalEvent>, onClose: () -> Unit) {
             val title = when (selected) {
                 today -> "Today"
                 today.plusDays(1) -> "Tomorrow"
-                else -> selected.format(LongDay)
+                else -> selected.format(LongDayFmt)
             }
             Txt(title, 20.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
             Spacer(Modifier.height(12.dp))
@@ -172,7 +166,7 @@ fun CalendarScreen(events: List<CalEvent>, onClose: () -> Unit) {
 
 private fun timeRange(e: CalEvent, day: LocalDate): String {
     if (e.allDay) return "All day"
-    fun at(t: ZonedDateTime) = if (t.toLocalDate() == day) t.format(Time) else "${t.format(ShortDay)} ${t.format(Time)}"
+    fun at(t: ZonedDateTime) = if (t.toLocalDate() == day) t.format(HHmm) else "${t.format(DowFmt)} ${t.format(HHmm)}"
     return "${at(e.start)} – ${at(e.end)}"
 }
 
@@ -233,7 +227,7 @@ fun dayTiles(w: Weather, index: Int): List<WeatherTile> {
         if (today) WeatherTile("WIND", "${w.wind} ${w.windUnit}", "From ${compass(w.windDirection)}")
         else WeatherTile("WIND", "${d?.wind ?: 0} ${w.windUnit}", "Up to, from ${compass(d?.windDirection ?: 0)}"),
         WeatherTile("UV INDEX", "${d?.uv ?: 0}", uvLabel(d?.uv ?: 0)),
-        WeatherTile("SUNRISE", d?.sunrise?.format(Time) ?: "--", "Sunset ${d?.sunset?.format(Time) ?: "--"}"),
+        WeatherTile("SUNRISE", d?.sunrise?.format(HHmm) ?: "--", "Sunset ${d?.sunset?.format(HHmm) ?: "--"}"),
         WeatherTile("RAINFALL", "${((d?.rainMm ?: 0.0) * 10).roundToInt() / 10.0} mm", "${d?.rain ?: 0}% chance"),
     )
 }
@@ -265,7 +259,7 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(vertical = 8.dp)) {
             hours.forEachIndexed { i, h ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Txt(if (i == 0) "Now" else h.time.format(Time), 11.sp, FontWeight.SemiBold, shadow = false)
+                    Txt(if (i == 0) "Now" else h.time.format(HHmm), 11.sp, FontWeight.SemiBold, shadow = false)
                     Spacer(Modifier.height(5.dp))
                     WIcon(h.code, h.isDay, 20.dp)
                     Spacer(Modifier.height(2.dp))
@@ -290,7 +284,7 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
                             .padding(horizontal = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Txt(if (i == 0) "Today" else d.date.format(ShortDay), 13.sp, FontWeight.SemiBold, Modifier.width(52.dp), shadow = false)
+                        Txt(if (i == 0) "Today" else d.date.format(DowFmt), 13.sp, FontWeight.SemiBold, Modifier.width(52.dp), shadow = false)
                         WIcon(d.code, true, 16.dp)
                         Txt(if (d.rain >= 10) "${d.rain}%" else "", 10.sp, FontWeight.SemiBold, Modifier.width(36.dp).padding(start = 6.dp), color = Color(0xFF9AD7FF), shadow = false)
                         Txt("${d.lo}°", 13.sp, FontWeight.Medium, Modifier.width(32.dp), alpha = 0.65f, shadow = false)
@@ -309,7 +303,7 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val date = w.days.getOrNull(chosen)?.date
-                Txt(if (chosen == 0 || date == null) "Today" else date.format(LongDay), 16.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
+                Txt(if (chosen == 0 || date == null) "Today" else date.format(LongDayFmt), 16.sp, FontWeight.SemiBold, maxLines = 1, shadow = false)
                 val tiles = dayTiles(w, chosen)
                 tiles.chunked(2).forEach { pair ->
                     Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

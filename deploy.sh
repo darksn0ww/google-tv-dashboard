@@ -19,10 +19,14 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n $S ]] || { echo "usage: ./deploy.sh <tv-ip:port> [--config config.json]" >&2; exit 1; }
 
+args=(--tv $S)
 if [[ -z $NO_INSTALL ]]; then
   # Homebrew's JDK 17 if JAVA_HOME isn't already set.
   [[ -z $JAVA_HOME && -d /opt/homebrew/opt/openjdk@17 ]] && export JAVA_HOME=/opt/homebrew/opt/openjdk@17
   ./gradlew assembleRelease -q
-  APK=app/build/outputs/apk/release/app-release.apk
+  args+=(--apk app/build/outputs/apk/release/app-release.apk)
+else
+  args+=(--enable-only)
 fi
-exec ./install.sh $S ${APK:--} $CONFIG
+[[ -n $CONFIG ]] && args+=(--config $CONFIG)
+exec bash ./setup.sh $args

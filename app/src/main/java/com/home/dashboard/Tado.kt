@@ -59,7 +59,8 @@ class Tado(private val ctx: Context) {
             val until = System.currentTimeMillis() + j.optLong("expires_in", 300) * 1000
             while (System.currentTimeMillis() < until) {
                 delay(every)
-                val (status, token) = post(
+                val (status, token) = try {
+                    post(
                     "$LOGIN/token",
                     mapOf(
                         "client_id" to CLIENT,
@@ -67,6 +68,9 @@ class Tado(private val ctx: Context) {
                         "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",
                     ),
                 )
+                } catch (e: IOException) {
+                    continue // keep waiting until the code expires
+                }
                 if (status == 200) {
                     keep(token)
                     state.value = HeatingState.Reading(null)
@@ -143,7 +147,7 @@ class Tado(private val ctx: Context) {
             }
             val home = store.getLong("home")
             val heating = if (store.optBoolean("tadoX")) rooms(home, wantedZone) else zones(home, wantedZone)
-            store.put("last", toJson(heating))
+            store.put("last", heating.toJson())
             save()
             state.value = HeatingState.Reading(heating)
         } catch (e: Exception) {
@@ -212,18 +216,7 @@ class Tado(private val ctx: Context) {
         updated = System.currentTimeMillis(),
     )
 
-    private fun toJson(h: Heating) = JSONObject()
-        .put("zone", h.zone).put("current", h.current).put("target", h.target).put("manual", h.manual)
-        .put("nextAt", h.nextAt).put("nextTarget", h.nextTarget).put("updated", h.updated)
-
-    private fun cached(): Heating? = store.optJSONObject("last")?.let { j ->
-        fun d(k: String) = if (j.has(k)) j.getDouble(k) else null
-        Heating(
-            zone = j.optString("zone"), current = d("current"), target = d("target"), manual = j.optBoolean("manual"),
-            updated = j.optLong("updated"),
-            nextAt = if (j.has("nextAt")) j.getLong("nextAt") else null, nextTarget = d("nextTarget"),
-        )
-    }
+    private fun cached(): Heating? = store.optJSONObject("last")?.let { heatingFromJson(it) }
 
     private companion object {
         const val CLIENT = "1bb50063-6b0c-4d11-bd99-387f4a91cc46" // tado's published public client id
