@@ -147,22 +147,28 @@
         }
         [IO.File]::WriteAllLines((Join-Path $dir 'restore.txt'), $restore)
         foreach ($f in (Join-Path $here 'config.json'), (Join-Path $here 'wallpaper.img'), $settingsFile) {
-            if ($f -and (Test-Path -LiteralPath $f)) { Copy-Item -LiteralPath $f -Destination $dir -Force }
+            if (-not $f -or -not (Test-Path -LiteralPath $f)) { continue }
+            $name = Split-Path -Leaf $f
+            # A second file of the same name, from somewhere else, gets its own.
+            $to = Join-Path $dir $name
+            if ((Test-Path $to) -and (Get-FileHash $to).Hash -ne (Get-FileHash -LiteralPath $f).Hash) { $to = Join-Path $dir "settings-used-$name" }
+            Copy-Item -LiteralPath $f -Destination $to -Force
         }
         Write-Host "  Saved to $dir`n  WARNING: it can hold your tokens and private links. Windows doesn't restrict who on this`n  PC can read it. Don't keep it in a synced folder such as OneDrive, and delete old backups."
     }
 
     # ---------- App ----------
 
-    # Fails unless every certificate the APK is signed with is the published one. It reads the APK
-    # Signing Block; Android itself checks, at install, that the signature matches that certificate.
+    # Fails unless the APK has a v2 signature (which every supported Android checks) with the published
+    # certificate, and any v3 or v3.1 entry names the same one. It reads the APK Signing Block; Android
+    # itself checks, at install, that the signature matches that certificate.
     function Test-Signer($path) {
         try {
             $b = [IO.File]::ReadAllBytes($path)
             function U32($at) { [long][BitConverter]::ToUInt32($b, [int]$at) }
             function U64($at) { [long][BitConverter]::ToUInt64($b, [int]$at) }
             $eocd = $b.Length - 22
-            if ((U32 $eocd) -ne 101010256) { return $false }
+            if ((U32 $eocd) -ne 101010256 -or $b[$eocd + 20] -ne 0 -or $b[$eocd + 21] -ne 0) { return $false }
             $cd = U32 ($eocd + 16)
             if ([Text.Encoding]::ASCII.GetString($b, [int]($cd - 16), 16) -cne 'APK Sig Block 42') { return $false }
             $size = U64 ($cd - 24)
@@ -170,7 +176,7 @@
             if ($block -lt 0 -or (U64 $block) -ne $size) { return $false }
             $pos = $block + 8
             $end = $cd - 24
-            $count = 0
+            $v2 = 0
             $sha = [Security.Cryptography.SHA256]::Create()
             while ($pos -lt $end) {
                 $len = U64 $pos
@@ -184,13 +190,13 @@
                         $cert = $at + 12 + (U32 ($at + 8)) + 4 # past the digests and the certificate list's length
                         $hash = $sha.ComputeHash($b, [int]($cert + 4), [int](U32 $cert))
                         if ((($hash | ForEach-Object { $_.ToString('x2') }) -join '') -ne $Signer) { return $false }
-                        $count++
+                        if ((U32 ($pos + 8)) -eq 1896449818) { $v2++ }
                         $at += 4 + (U32 $at)
                     }
                 }
                 $pos += 8 + $len
             }
-            return $count -gt 0
+            return $v2 -gt 0
         } catch { return $false }
     }
 
@@ -383,6 +389,11 @@
     # Only ever with a typed yes: it lets the app install software on the TV.
     function Set-AutoUpdate($path) {
         if (-not $path -or (Get-Content -Raw -LiteralPath $path) -notmatch '"autoUpdate"\s*:\s*true') { return }
+        if (((Tv getprop ro.build.version.sdk).Trim() -as [int]) -in 1..30) {
+            Step 'Automatic updates'
+            Write-Host "  This TV's Android is too old to update apps by itself. It will just say when there's one."
+            return
+        }
         if (Test-MayInstall) { return }
         Step 'Automatic updates'
         Write-Host "  To update itself, the dashboard needs Android's permission to install apps. Android only`n  accepts an update signed with the same key as the installed app."
@@ -444,6 +455,8 @@
 
     function Enable-HomeButton { # keeps any other accessibility services you use
         $current = (Tv settings get secure enabled_accessibility_services).Trim()
+        # "null" or a list of services; anything else means the read failed, so change nothing.
+        if ($current -notmatch '^[A-Za-z0-9_.$/:]+$') { return $false }
         $others = @($current.Split(':') | Where-Object { $_ -and $_ -ne 'null' -and $_ -ne $Service })
         foreach ($attempt in 1..5) {
             Start-Sleep 4

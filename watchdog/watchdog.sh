@@ -11,6 +11,28 @@ sh_tv() { timeout 20 adb -s "$tv" shell "$@" </dev/null 2>/dev/null | tr -d '\r'
 # Android lists each bound service on its own line, so don't look only at the first.
 bound() { sh_tv dumpsys accessibility | grep -q 'label=Home button override'; }
 
+front_app() { sh_tv dumpsys activity activities | grep -m1 topResumedActivity; }
+
+# After a repair that didn't work, wait longer each time (1, 2, 4 ... 30 checks) rather than
+# switching accessibility off and on every minute.
+key() { printf '%s' "$tv" | tr -c 'A-Za-z0-9' _; }
+forget_failures() { eval "failed_$(key)=0 wait_$(key)=0"; }
+still_waiting() {
+  eval "left=\${wait_$(key):-0}"
+  [ "$left" -gt 0 ] || return 1
+  eval "wait_$(key)=$((left - 1))"
+}
+note_failure() {
+  eval "fails=\${failed_$(key):-0}"
+  fails=$((fails + 1))
+  pause=1
+  step=1
+  while [ "$step" -lt "$fails" ] && [ "$pause" -lt 30 ]; do pause=$((pause * 2)); step=$((step + 1)); done
+  [ "$pause" -le 30 ] || pause=30
+  eval "failed_$(key)=$fails wait_$(key)=$pause"
+  log "$tv: still off, trying again in $pause checks"
+}
+
 # True if version $1 is $2 or later.
 at_least() {
   [ -n "$1" ] && [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$2" ]
@@ -18,7 +40,11 @@ at_least() {
 
 # Switch the Home override (and "Continue watching", if allowed) off and on again.
 rearm() {
-  others=$(sh_tv settings get secure enabled_accessibility_services | tr ':' '\n' | grep -v -e "^$SVC\$" -e '^null$' | grep . | paste -s -d: -)
+  current=$(sh_tv settings get secure enabled_accessibility_services)
+  # "null" or a list of services; anything else means the read failed, and writing would switch
+  # off your other accessibility services.
+  printf '%s' "$current" | grep -Eq '^[A-Za-z0-9_.$/:]+$' || return 1
+  others=$(printf '%s' "$current" | tr ':' '\n' | grep -v -e "^$SVC\$" -e '^null$' | grep . | paste -s -d: -)
   if [ -n "$others" ]; then sh_tv settings put secure enabled_accessibility_services "$others"
   else sh_tv settings delete secure enabled_accessibility_services >/dev/null; fi
   sh_tv settings put secure accessibility_enabled 0
@@ -43,9 +69,13 @@ check() {
     *) return ;; # off or unreachable
   esac
   [ "$(sh_tv getprop sys.boot_completed)" = 1 ] || return
-  bound && return
+  if bound; then
+    forget_failures
+    return
+  fi
+  still_waiting && return
 
-  front=$(sh_tv dumpsys activity activities | grep -m1 topResumedActivity)
+  front=$(front_app)
   case $front in
     *com.google.android.apps.tv.launcherx* | *$PKG*) home=1 ;;
     *) home= ;;
@@ -53,8 +83,10 @@ check() {
 
   # From 1.5.1 the app stays in the background when reconnected, so it can be repaired whatever is
   # on screen: wake it (TCL refuses to bind a stopped app), then switch the service back on.
+  quietly=
   if at_least "$(sh_tv dumpsys package $PKG | grep -m1 -o 'versionName=[0-9.]*' | cut -d= -f2)" 1.5.1; then
     log "$tv: Home override is off, re-arming in the background"
+    quietly=1
     # A library receiver only adb can reach; any message to it starts the app, showing nothing.
     sh_tv am broadcast -a androidx.profileinstaller.action.BENCHMARK_OPERATION \
       -n $PKG/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
@@ -62,19 +94,30 @@ check() {
     rearm
     if bound; then
       log "$tv: re-armed"
-      # Google TV's own home is showing: put the dashboard there.
-      case $front in *launcherx*) sh_tv am start -n $PKG/.MainActivity >/dev/null ;; esac
+      forget_failures
+      # Google TV's own home is showing, and still is: put the dashboard there.
+      case $(front_app) in *launcherx*) sh_tv am start -n $PKG/.MainActivity >/dev/null ;; esac
       return
     fi
   fi
 
   # Otherwise open the app first, but only from a home screen so nothing is interrupted.
-  [ -n "$home" ] || return
+  if [ -z "$home" ]; then
+    [ -z "$quietly" ] || note_failure
+    return
+  fi
+  # Look again just before opening anything: you may have started something since.
+  case $(front_app) in *com.google.android.apps.tv.launcherx* | *$PKG*) ;; *) return ;; esac
   log "$tv: Home override is off, opening the dashboard to re-arm"
   sh_tv am start -n $PKG/.MainActivity >/dev/null
   sleep 5
   rearm
-  if bound; then log "$tv: re-armed"; else log "$tv: still off, will retry"; fi
+  if bound; then
+    log "$tv: re-armed"
+    forget_failures
+  else
+    note_failure
+  fi
 }
 
 log "watching: $TVS (every ${INTERVAL}s)"

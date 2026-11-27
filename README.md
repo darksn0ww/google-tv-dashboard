@@ -324,8 +324,8 @@ installed: run the [setup script](#quick-setup) to update.
 ### Automatic updates (optional)
 
 With `"autoUpdate": true` (the setup script asks) the dashboard downloads a newer release and
-installs it two minutes into the screensaver, without a prompt. It needs Android 12 or later,
-and your permission to install apps: say yes when the setup script asks, or open the TV's
+installs it two minutes into the screensaver, without a prompt. It needs `updateCheck` left on,
+Android 12 or later, and your permission to install apps: say yes when the setup script asks, or open the TV's
 "install unknown apps" screen from the dashboard's own prompt. Android and the dashboard both
 refuse an update that isn't signed with the same key as the installed app.
 
@@ -339,7 +339,7 @@ the [watchdog](watchdog/). A Google TV Streamer recovered by itself.
 
 | Permission | Why |
 | --- | --- |
-| Accessibility service | Catches the Home button, and presses "Start now" after you select the clock. Android sends it all remote key presses; it acts only on Home and passes the rest through. |
+| Accessibility service | Catches the Home button, and presses "Start now" after you select the clock. Android sends it all remote key presses; it acts only on Home (except over the screensaver) and passes every other key through, noting only that the remote was used so it can call off a pending "Start now" or update. |
 | Install apps (only with `autoUpdate`) | Lets the dashboard install its own signed updates. |
 | Notification access (optional) | Reads media sessions for "Continue watching". It opts out of receiving notifications. |
 

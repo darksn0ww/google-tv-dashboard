@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -28,6 +29,7 @@ object AutoUpdate {
     private const val APK = "https://github.com/darksn0ww/google-tv-dashboard/releases/latest/download/tv-dashboard.apk"
     private const val RESULT = "com.home.dashboard.UPDATE_RESULT"
     private const val TAG = "DashboardUpdate"
+    private const val MAX_APK = 100L * 1024 * 1024
 
     private val http = OkHttpClient.Builder().callTimeout(2, TimeUnit.MINUTES).build()
 
@@ -51,14 +53,14 @@ object AutoUpdate {
         }
         val apk = File(ctx.cacheDir, "update.apk")
         try {
-            http.newCall(Request.Builder().url(APK).build()).execute().use { r ->
-                if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
-                apk.outputStream().use { r.body!!.byteStream().copyTo(it) }
-            }
-            tried.writeText(version)
+            download(apk)
             val problem = reject(ctx, apk, version)
-            if (problem != null) Log.w(TAG, "Not installing $version: $problem")
-            else if (stillIdle()) {
+            if (problem != null) {
+                tried.writeText(version)
+                Log.w(TAG, "Not installing $version: $problem")
+            } else if (stillIdle()) {
+                // Counted as an attempt only now: being woken mid-download doesn't use one up.
+                tried.writeText(version)
                 Log.i(TAG, "Installing $version")
                 updating(ctx).writeText(version)
                 install(ctx, apk)
@@ -70,14 +72,38 @@ object AutoUpdate {
         }
     }
 
+    private fun download(to: File) {
+        http.newCall(Request.Builder().url(APK).build()).execute().use { r ->
+            if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+            val body = r.body!!
+            to.outputStream().use { out ->
+                val buffer = ByteArray(64 * 1024)
+                val input = body.byteStream()
+                var total = 0L
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > MAX_APK) throw IOException("far larger than this app")
+                    out.write(buffer, 0, n)
+                }
+            }
+        }
+    }
+
     private fun updating(ctx: Context) = File(ctx.filesDir, "updating")
 
-    /** True once, just after this app has replaced itself. */
+    /**
+     * True once, immediately after this app has replaced itself: the version now installed is the
+     * one that was being installed, it was moments ago, and nothing is playing.
+     */
     fun justUpdated(ctx: Context): Boolean {
         val marker = updating(ctx)
-        val recent = marker.exists() && System.currentTimeMillis() - marker.lastModified() < 10 * 60_000L
+        val wanted = runCatching { marker.readText() }.getOrNull() ?: return false
+        val recent = System.currentTimeMillis() - marker.lastModified() < 30_000L
         marker.delete()
-        return recent
+        val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+        return recent && wanted == installed && !ctx.getSystemService(AudioManager::class.java).isMusicActive
     }
 
     private fun signers(info: PackageInfo?) =
@@ -120,6 +146,7 @@ object AutoUpdate {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+                updating(context).delete() // only failures arrive here, so nothing was replaced
                 if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
                     // Never interrupt with a prompt: drop it and leave the on-screen notice to say so.
                     val id = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)

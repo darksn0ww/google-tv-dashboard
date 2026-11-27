@@ -170,7 +170,11 @@ backup() { # [settings file in use]
     echo "# The version you had is previous-app.apk: after uninstalling, adb install previous-app.apk" >>"$dir/restore.txt"
   fi
   for f in "$PWD/config.json" "$PWD/wallpaper.img" "${1:-}"; do
-    if [ -n "$f" ] && [ -f "$f" ]; then cp "$f" "$dir/" || die "Couldn't copy $f; nothing was changed."; fi
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    name=$(basename "$f")
+    # A second file of the same name, from somewhere else, gets its own.
+    if [ -e "$dir/$name" ] && ! cmp -s "$f" "$dir/$name"; then name=settings-used-$name; fi
+    cp "$f" "$dir/$name" || die "Couldn't copy $f; nothing was changed."
   done
   say "  Saved to $dir
   WARNING: it can hold your tokens and private links. Don't share or sync it, and delete
@@ -195,13 +199,14 @@ download_apk() { # folder
 sha256() { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi | cut -d' ' -f1; }
 number() { od -An -j "$2" -N "$3" -tu"$3" "$1" | tr -d ' \n'; } # file offset bytes: a little-endian number
 
-# Fails unless every certificate the APK is signed with is the published one. It reads the APK
-# Signing Block; Android itself checks, at install, that the signature matches that certificate.
+# Fails unless the APK has a v2 signature (which every supported Android checks) with the published
+# certificate, and any v3 or v3.1 entry names the same one. It reads the APK Signing Block; Android
+# itself checks, at install, that the signature matches that certificate.
 signed_by_us() { # apk
-  local f=$1 size eocd cd block pos end len id signer signers_end cert_at digests count=0 sum
+  local f=$1 size eocd cd block pos end len id signer signers_end cert_at digests v2=0 sum
   size=$(($(wc -c <"$f")))
   eocd=$((size - 22))
-  [ "$eocd" -gt 0 ] && [ "$(number "$f" $eocd 4)" = 101010256 ] || return 1
+  [ "$eocd" -gt 0 ] && [ "$(number "$f" $eocd 4)" = 101010256 ] && [ "$(number "$f" $((eocd + 20)) 2)" = 0 ] || return 1
   cd=$(number "$f" $((eocd + 16)) 4)
   [ "$(tail -c +$((cd - 15)) "$f" | head -c 16)" = "APK Sig Block 42" ] || return 1
   len=$(number "$f" $((cd - 24)) 8)
@@ -223,13 +228,13 @@ signed_by_us() { # apk
           cert_at=$((signer + 12 + digests + 4)) # past the digests and the certificate list's length
           sum=$(tail -c +$((cert_at + 5)) "$f" | head -c "$(number "$f" $cert_at 4)" | sha256)
           [ "$sum" = "$SIGNER" ] || return 1
-          count=$((count + 1))
+          [ "$id" != 1896449818 ] || v2=$((v2 + 1))
           signer=$((signer + 4 + $(number "$f" $signer 4)))
         done ;;
     esac
     pos=$((pos + 8 + len))
   done
-  [ "$count" -gt 0 ]
+  [ "$v2" -gt 0 ]
 }
 
 # ---------- Settings ----------
@@ -496,6 +501,11 @@ ALLOW_HINT="cmd appops set $PKG REQUEST_INSTALL_PACKAGES allow"
 # Only ever with a typed yes: it lets the app install software on the TV.
 allow_updates() { # settings file
   wants_auto_update "${1:-}" || return 0
+  if [ "$(tv getprop ro.build.version.sdk)" -lt 31 ] 2>/dev/null; then
+    step "Automatic updates"
+    say "  This TV's Android is too old to update apps by itself. It will just say when there's one."
+    return 0
+  fi
   may_install && return 0
   step "Automatic updates"
   say "  To update itself, the dashboard needs Android's permission to install apps. Android only
@@ -565,8 +575,11 @@ push_config() {
 }
 
 enable_home_button() { # keeps any other accessibility services you use
-  local others attempt
-  others=$(tv settings get secure enabled_accessibility_services | tr ':' '\n' | grep -v -e "^$SERVICE\$" -e '^null$' | grep . | paste -s -d: - || true)
+  local current others attempt
+  current=$(tv settings get secure enabled_accessibility_services)
+  # "null" or a list of services; anything else means the read failed, so change nothing.
+  printf '%s' "$current" | grep -Eq '^[A-Za-z0-9_.$/:]+$' || return 1
+  others=$(printf '%s' "$current" | tr ':' '\n' | grep -v -e "^$SERVICE\$" -e '^null$' | grep . | paste -s -d: - || true)
   for attempt in 1 2 3 4 5; do
     sleep 4
     if [ -n "$others" ]; then tv settings put secure enabled_accessibility_services "$others"

@@ -6,6 +6,7 @@ package com.home.dashboard
 import android.content.Context
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.content.Intent
+import android.os.Build
 import android.media.tv.TvContract
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -334,7 +335,8 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                         .background(Color(0xE61C1C1E), RoundedCornerShape(10.dp)).padding(10.dp, 2.dp),
                                 ) {
                                     val how = when {
-                                        !config.autoUpdate -> "run the setup script"
+                                        // Silent installs need Android 12.
+                                        !config.autoUpdate || Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> "run the setup script"
                                         needsInstallPermission(ctx, config) -> "installing isn't allowed yet"
                                         else -> "installs during the screensaver"
                                     }
