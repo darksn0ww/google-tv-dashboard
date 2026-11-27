@@ -30,11 +30,24 @@ object Updates {
         return false
     }
 
+    /**
+     * The saved answer, written as "latest installed". Null if unreadable, or if it was found
+     * while a different version was installed, as it may be out of date by now.
+     */
+    fun remembered(saved: String, installed: String): String? {
+        val parts = saved.split(' ')
+        return parts[0].takeIf { parts.size == 2 && parts[1] == installed && it.matches(Regex("\\d+(\\.\\d+)*")) }
+    }
+
     /** The newer version if there is one. Blocking; failures just mean "nothing to report". */
     fun check(ctx: Context): String? {
-        val file = File(ctx.filesDir, "latest-version")
-        var latest = runCatching { file.readText() }.getOrDefault("")
-        if (System.currentTimeMillis() - file.lastModified() >= DAY) {
+        val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: return null
+        // Its own file name: 1.4.0 kept a bare version in "latest-version" and can't read this format.
+        File(ctx.filesDir, "latest-version").delete()
+        val file = File(ctx.filesDir, "release-check")
+        val saved = remembered(runCatching { file.readText() }.getOrDefault(""), installed)
+        var latest = saved.orEmpty()
+        if (saved == null || System.currentTimeMillis() - file.lastModified() >= DAY) {
             val found = runCatching {
                 http.newCall(Request.Builder().url(LATEST).head().build()).execute().use { r ->
                     versionIn(r.header("Location").orEmpty())
@@ -42,10 +55,9 @@ object Updates {
             }.getOrNull()
             if (found != null) {
                 latest = found
-                runCatching { file.writeText(found) }
+                runCatching { file.writeText("$found $installed") }
             }
         }
-        val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: return null
         return latest.takeIf { it.isNotEmpty() && isNewer(it, installed) }
     }
 }

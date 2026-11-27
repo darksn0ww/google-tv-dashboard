@@ -32,7 +32,7 @@ camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) b
 - **Continue watching:** what you recently played on this device
 - **Ambient mode:** select the clock to start Google's screensaver
 - **Home button:** opens the dashboard instead of the Google TV home screen
-- **Update notice:** says when a newer release is out; it installs nothing
+- **Updates:** says when a newer release is out, or installs it for you if you turn that on
 
 Used on a Google TV Streamer and a TCL Google TV, both Android 14.
 
@@ -161,6 +161,7 @@ settings and says so on screen. [config.example.json](config.example.json) shows
 | `snapshotSeconds` | How often camera stills refresh (default 15) |
 | `favourites`, `hidden` | Package names to pin or hide |
 | `updateCheck` | `false` stops the daily check for a newer release (on by default) |
+| `autoUpdate` | `true` installs new releases by itself ([Updates](#updates); off by default) |
 | `homeAssistant` | Heating and the smart home panel through [Home Assistant](#heating-from-home-assistant) |
 | `tado`, `tadoZone` | Or ask [tado](#heating-straight-from-tado) directly, and which room |
 | `nest` | Or ask [Google Nest](#google-nest-thermostat-experimental) directly; written by the setup script |
@@ -316,15 +317,27 @@ The secret and token are stored in `config.json` and the app's private storage: 
 ## Updates
 
 Once a day the dashboard asks GitHub which release is latest, and shows a notice above the
-widgets if it's newer than the one installed. Nothing is downloaded or installed: run the
-[setup script](#quick-setup) to update. GitHub sees your public IP address, as with any visit;
-set `"updateCheck": false` to turn this off.
+widgets if it's newer than the one installed. GitHub sees your public IP address, as with any
+visit; set `"updateCheck": false` to turn this off. By default nothing is downloaded or
+installed: run the [setup script](#quick-setup) to update.
+
+### Automatic updates (optional)
+
+With `"autoUpdate": true` (the setup script asks) the dashboard downloads a newer release and
+installs it two minutes into the screensaver, without a prompt. It needs Android 12 or later,
+and your permission to install apps: say yes when the setup script asks, or open the TV's
+"install unknown apps" screen from the dashboard's own prompt. Android and the dashboard both
+refuse an update that isn't signed with the same key as the installed app.
+
+A bad release would install itself too, and going back means uninstalling. It has been tried on
+a Google TV Streamer.
 
 ## Permissions
 
 | Permission | Why |
 | --- | --- |
 | Accessibility service | Catches the Home button, and presses "Start now" after you select the clock. Android sends it all remote key presses; it acts only on Home and passes the rest through. |
+| Install apps (only with `autoUpdate`) | Lets the dashboard install its own signed updates. |
 | Notification access (optional) | Reads media sessions for "Continue watching". It opts out of receiving notifications. |
 
 ## Known limits

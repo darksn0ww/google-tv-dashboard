@@ -6,11 +6,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.os.UserManager
+import android.util.Log
 import android.view.KeyEvent
 import android.service.notification.NotificationListenerService
 import androidx.core.content.ContextCompat
@@ -57,14 +59,34 @@ class HomeOverrideService : AccessibilityService() {
     // retries), so it can connect before the user is unlocked; the dashboard can't start until then.
     private val handler = Handler(Looper.getMainLooper())
     private var returnAfterDream = false
+    private var dreaming = false
+    private var updateResults: BroadcastReceiver? = null
+    private val updateWhileIdle = Runnable {
+        Thread {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val cfg = Config.load(applicationContext)
+                if (cfg.autoUpdate && cfg.updateCheck) runCatching { AutoUpdate.run(applicationContext) { dreaming } }
+            }
+        }.start()
+    }
     private val dreamEnded = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            // Updates wait until the screensaver has been on for a while: nobody is watching.
+            dreaming = intent.action == Intent.ACTION_DREAMING_STARTED
+            handler.removeCallbacks(updateWhileIdle)
+            if (dreaming) {
+                handler.postDelayed(updateWhileIdle, UPDATE_AFTER_DREAMING)
+                Log.i("DashboardUpdate", "Screensaver on; will look for an update shortly")
+                return
+            }
             // Otherwise waking up would land on the settings screen we opened.
             if (returnAfterDream) { returnAfterDream = false; showDashboard() }
         }
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(updateWhileIdle)
+        updateResults?.let { runCatching { unregisterReceiver(it) } }
         runCatching { unregisterReceiver(dreamEnded) }
         super.onDestroy()
     }
@@ -72,8 +94,11 @@ class HomeOverrideService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         ContextCompat.registerReceiver(
-            this, dreamEnded, IntentFilter(Intent.ACTION_DREAMING_STOPPED), ContextCompat.RECEIVER_NOT_EXPORTED,
+            this, dreamEnded,
+            IntentFilter(Intent.ACTION_DREAMING_STOPPED).apply { addAction(Intent.ACTION_DREAMING_STARTED) },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) updateResults = AutoUpdate.watchResults(this)
         if (getSystemService(UserManager::class.java).isUserUnlocked) {
             showDashboard()
         } else {
@@ -133,6 +158,7 @@ class HomeOverrideService : AccessibilityService() {
 
     companion object {
         const val GOOGLE_TV_LAUNCHER = "com.google.android.apps.tv.launcherx"
+        private const val UPDATE_AFTER_DREAMING = 2 * 60_000L
         private val AMBIENT_SCREENS = setOf("AmbientActivity", "AmbientSliceActivity")
 
         /** Set by the clock card; only within this window will "Start now" be pressed. */

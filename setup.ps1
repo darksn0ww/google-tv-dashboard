@@ -344,6 +344,7 @@
             }
             '4' { Set-Nest $config }
         }
+        if (YesNo "`nInstall new releases automatically while the screensaver is on?" 'n') { $config.autoUpdate = $true }
         # No byte order mark: Android's JSON reader rejects it.
         [IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $config -Depth 6), (New-Object System.Text.UTF8Encoding($false)))
         Write-Host "  Saved to $path. It holds private links and keys: don't share it."
@@ -373,6 +374,23 @@
                 Write-Host '  Off. Run this again and choose 2 to turn it back on.'
             }
         }
+    }
+
+    # ---------- Updates ----------
+
+    function Test-MayInstall { (Tv cmd appops get $Pkg REQUEST_INSTALL_PACKAGES) -match 'REQUEST_INSTALL_PACKAGES: allow' }
+
+    # Only ever with a typed yes: it lets the app install software on the TV.
+    function Set-AutoUpdate($path) {
+        if (-not $path -or (Get-Content -Raw -LiteralPath $path) -notmatch '"autoUpdate"\s*:\s*true') { return }
+        if (Test-MayInstall) { return }
+        Step 'Automatic updates'
+        Write-Host "  To update itself, the dashboard needs Android's permission to install apps. Android only`n  accepts an update signed with the same key as the installed app."
+        if (YesNo 'Allow it on this TV?' 'n') {
+            Tv cmd appops set $Pkg REQUEST_INSTALL_PACKAGES allow | Out-Null
+            if (Test-MayInstall) { Write-Host '  Allowed.' }
+            else { Write-Host "  That didn't work. Allow it on the TV when the dashboard asks." }
+        } else { Write-Host "  Not allowed. The dashboard will just say when there's an update." }
     }
 
     # ---------- Install ----------
@@ -498,6 +516,7 @@
             Tv cmd notification allow_listener $Listener | Out-Null
         }
 
+        Set-AutoUpdate $config
         Set-Screensaver
 
         Start-App

@@ -153,6 +153,12 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         }
     }
 
+    // Ask once for the install permission that automatic updates need.
+    var askInstall by remember { mutableStateOf(false) }
+    LaunchedEffect(config, resumeTick) {
+        askInstall = config.loaded && needsInstallPermission(ctx, config) && !alreadyAsked(ctx)
+    }
+
     val apps by produceState(AppsData(), resumeTick, config) {
         if (config.loaded) value = withContext(Dispatchers.IO) { Apps.load(ctx) }
     }
@@ -327,7 +333,12 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                     Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 48.dp)
                                         .background(Color(0xE61C1C1E), RoundedCornerShape(10.dp)).padding(10.dp, 2.dp),
                                 ) {
-                                    Txt("Update available: $it  ·  run the setup script", 11.sp, FontWeight.SemiBold, shadow = false)
+                                    val how = when {
+                                        !config.autoUpdate -> "run the setup script"
+                                        needsInstallPermission(ctx, config) -> "installing isn't allowed yet"
+                                        else -> "installs during the screensaver"
+                                    }
+                                    Txt("Update available: $it  ·  $how", 11.sp, FontWeight.SemiBold, shadow = false)
                                 }
                             }
                             Header(
@@ -443,6 +454,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                     }
                 }
             }
+            if (askInstall) InstallPermissionPrompt(ctx) { askInstall = false }
             if (config.problem.isNotEmpty()) {
                 Box(
                     Modifier.align(Alignment.BottomStart).padding(16.dp).background(Color(0xE61C1C1E), RoundedCornerShape(10.dp))

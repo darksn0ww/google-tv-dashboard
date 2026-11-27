@@ -13,6 +13,7 @@
   "favourites": ["com.plexapp.android", "com.google.android.youtube.tv"],
   "hidden": [],
   "updateCheck": true,
+  "autoUpdate": false,
   "tado": false,
   "tadoZone": "",
   "nest": {"projectId": "", "clientId": "", "clientSecret": "", "refreshToken": "", "room": ""},

@@ -14,6 +14,14 @@ class UpdatesTest {
         assertNull(Updates.versionIn(""))
     }
 
+    @Test fun forgetsAnAnswerFromAnotherVersionOrFormat() {
+        assertEquals("1.4.0", Updates.remembered("1.4.0 1.3.9", "1.3.9"))
+        assertNull(Updates.remembered("1.4.0 1.3.9", "1.4.0"))
+        assertNull(Updates.remembered("1.4.0", "1.4.0"))
+        assertNull(Updates.remembered("", "1.4.0"))
+        assertNull(Updates.remembered("junk 1.4.0", "1.4.0"))
+    }
+
     @Test fun comparesNumbersNotText() {
         assertTrue(Updates.isNewer("1.10.0", "1.9.9"))
         assertTrue(Updates.isNewer("1.4.1", "1.4"))

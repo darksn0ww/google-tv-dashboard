@@ -453,6 +453,8 @@ Heating and smart home
        say "  After installing, select the heating card on the TV to sign in." ;;
     4) nest ;;
   esac
+  say ""
+  yes_no "Install new releases automatically while the screensaver is on?" n && C=$(add "$C" autoUpdate true)
   (umask 077 && printf '{%s}\n' "$C" >"$1") || die "Couldn't write $1"
   chmod 600 "$1"
   say "  Saved to $1. It holds private links and keys: don't share it."
@@ -483,6 +485,27 @@ screensaver() {
     3) tv settings put secure screensaver_enabled 0
        say "  Off. Run this again and choose 2 to turn it back on." ;;
   esac
+}
+
+# ---------- Updates ----------
+
+wants_auto_update() { [ -n "${1:-}" ] && grep -Eq '"autoUpdate"[[:space:]]*:[[:space:]]*true' "$1"; }
+may_install() { tv cmd appops get $PKG REQUEST_INSTALL_PACKAGES | grep -q 'REQUEST_INSTALL_PACKAGES: allow'; }
+ALLOW_HINT="cmd appops set $PKG REQUEST_INSTALL_PACKAGES allow"
+
+# Only ever with a typed yes: it lets the app install software on the TV.
+allow_updates() { # settings file
+  wants_auto_update "${1:-}" || return 0
+  may_install && return 0
+  step "Automatic updates"
+  say "  To update itself, the dashboard needs Android's permission to install apps. Android only
+  accepts an update signed with the same key as the installed app."
+  if yes_no "Allow it on this TV?" n; then
+    tv cmd appops set $PKG REQUEST_INSTALL_PACKAGES allow >/dev/null
+    if may_install; then say "  Allowed."; else say "  That didn't work. Allow it on the TV when the dashboard asks."; fi
+  else
+    say "  Not allowed. The dashboard will just say when there's an update."
+  fi
 }
 
 # ---------- Install ----------
@@ -602,6 +625,9 @@ unattended() { # apk config enable-only pull-only
   restart_listener || true
   start_app
   say "home override: bound"
+  if wants_auto_update "$2" && ! may_install; then
+    say "autoUpdate is on but installing isn't allowed. Allow it on the TV, or run: adb -s $SERIAL shell $ALLOW_HINT"
+  fi
 }
 
 main() {
@@ -664,6 +690,7 @@ main() {
     tv cmd notification allow_listener $LISTENER >/dev/null
   fi
 
+  allow_updates "$config"
   screensaver
 
   start_app

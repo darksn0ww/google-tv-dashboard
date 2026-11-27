@@ -59,6 +59,7 @@ data class Config(
     val favourites: List<String> = emptyList(),
     val hidden: List<String> = emptyList(),
     val updateCheck: Boolean = true, // look for newer releases once a day
+    val autoUpdate: Boolean = false, // and install them while the screensaver is on
 ) {
     companion object {
         fun load(ctx: Context): Config {
@@ -141,6 +142,7 @@ data class Config(
             favourites = j.optJSONArray("favourites").strings(),
             hidden = j.optJSONArray("hidden").strings(),
             updateCheck = j.optBoolean("updateCheck", true),
+            autoUpdate = j.optBoolean("autoUpdate"),
         )
     }
 }
