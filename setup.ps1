@@ -386,6 +386,9 @@
         if (Test-MayInstall) { return }
         Step 'Automatic updates'
         Write-Host "  To update itself, the dashboard needs Android's permission to install apps. Android only`n  accepts an update signed with the same key as the installed app."
+        if ((Tv getprop ro.product.manufacturer).Trim() -eq 'TCL') {
+            Write-Host "`n  WARNING: TCL TVs don't restart the Home button after an update, leaving you on Google TV's`n  home screen. Only allow this if you run the watchdog container (see the watchdog folder)."
+        }
         if (YesNo 'Allow it on this TV?' 'n') {
             Tv cmd appops set $Pkg REQUEST_INSTALL_PACKAGES allow | Out-Null
             if (Test-MayInstall) { Write-Host '  Allowed.' }

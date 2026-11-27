@@ -33,7 +33,7 @@ object AutoUpdate {
 
     /** Blocking. [stillIdle] is asked again just before installing. */
     fun run(ctx: Context, stillIdle: () -> Boolean) {
-        val version = Updates.check(ctx) ?: run {
+        val version = Updates.check(ctx, Updates.interval(autoUpdate = true)) ?: run {
             Log.i(TAG, "Nothing newer to install")
             return
         }
@@ -60,6 +60,7 @@ object AutoUpdate {
             if (problem != null) Log.w(TAG, "Not installing $version: $problem")
             else if (stillIdle()) {
                 Log.i(TAG, "Installing $version")
+                updating(ctx).writeText(version)
                 install(ctx, apk)
             }
         } catch (e: IOException) {
@@ -67,6 +68,16 @@ object AutoUpdate {
         } finally {
             apk.delete()
         }
+    }
+
+    private fun updating(ctx: Context) = File(ctx.filesDir, "updating")
+
+    /** True once, just after this app has replaced itself. */
+    fun justUpdated(ctx: Context): Boolean {
+        val marker = updating(ctx)
+        val recent = marker.exists() && System.currentTimeMillis() - marker.lastModified() < 10 * 60_000L
+        marker.delete()
+        return recent
     }
 
     private fun signers(info: PackageInfo?) =

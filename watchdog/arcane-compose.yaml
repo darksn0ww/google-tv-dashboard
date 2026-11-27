@@ -39,27 +39,13 @@ configs:
       # Android lists each bound service on its own line, so don't look only at the first.
       bound() { sh_tv dumpsys accessibility | grep -q 'label=Home button override'; }
 
-      check() {
-        timeout 15 adb connect "$$tv" >/dev/null 2>&1
-        state=$$(timeout 10 adb -s "$$tv" get-state 2>&1)
-        case $$state in
-          device) ;;
-          *unauthorized*) log "$$tv: accept the debugging prompt on the TV (tick Always allow)"; return ;;
-          *) return ;; # off or unreachable
-        esac
-        [ "$$(sh_tv getprop sys.boot_completed)" = 1 ] || return
-        bound && return
+      # True if version $$1 is $$2 or later.
+      at_least() {
+        [ -n "$$1" ] && [ "$$(printf '%s\n%s\n' "$$2" "$$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$$2" ]
+      }
 
-        # Only step in on a home screen, so nothing being watched is interrupted.
-        front=$$(sh_tv dumpsys activity activities | grep -m1 topResumedActivity)
-        case $$front in
-          *com.google.android.apps.tv.launcherx*|*$$PKG*) ;;
-          *) return ;;
-        esac
-
-        log "$$tv: Home override is off, re-arming"
-        sh_tv am start -n $$PKG/.MainActivity >/dev/null
-        sleep 5
+      # Switch the Home override (and "Continue watching", if allowed) off and on again.
+      rearm() {
         others=$$(sh_tv settings get secure enabled_accessibility_services | tr ':' '\n' | grep -v -e "^$$SVC\$$" -e '^null$$' | grep . | paste -s -d: -)
         if [ -n "$$others" ]; then sh_tv settings put secure enabled_accessibility_services "$$others"
         else sh_tv settings delete secure enabled_accessibility_services >/dev/null; fi
@@ -74,6 +60,48 @@ configs:
           sleep 1
           sh_tv cmd notification allow_listener $$LISTENER
         fi
+      }
+
+      check() {
+        timeout 15 adb connect "$$tv" >/dev/null 2>&1
+        state=$$(timeout 10 adb -s "$$tv" get-state 2>&1)
+        case $$state in
+          device) ;;
+          *unauthorized*) log "$$tv: accept the debugging prompt on the TV (tick Always allow)"; return ;;
+          *) return ;; # off or unreachable
+        esac
+        [ "$$(sh_tv getprop sys.boot_completed)" = 1 ] || return
+        bound && return
+
+        front=$$(sh_tv dumpsys activity activities | grep -m1 topResumedActivity)
+        case $$front in
+          *com.google.android.apps.tv.launcherx* | *$$PKG*) home=1 ;;
+          *) home= ;;
+        esac
+
+        # From 1.5.1 the app stays in the background when reconnected, so it can be repaired whatever is
+        # on screen: wake it (TCL refuses to bind a stopped app), then switch the service back on.
+        if at_least "$$(sh_tv dumpsys package $$PKG | grep -m1 -o 'versionName=[0-9.]*' | cut -d= -f2)" 1.5.1; then
+          log "$$tv: Home override is off, re-arming in the background"
+          # A library receiver only adb can reach; any message to it starts the app, showing nothing.
+          sh_tv am broadcast -a androidx.profileinstaller.action.BENCHMARK_OPERATION \
+            -n $$PKG/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
+          sleep 2
+          rearm
+          if bound; then
+            log "$$tv: re-armed"
+            # Google TV's own home is showing: put the dashboard there.
+            case $$front in *launcherx*) sh_tv am start -n $$PKG/.MainActivity >/dev/null ;; esac
+            return
+          fi
+        fi
+
+        # Otherwise open the app first, but only from a home screen so nothing is interrupted.
+        [ -n "$$home" ] || return
+        log "$$tv: Home override is off, opening the dashboard to re-arm"
+        sh_tv am start -n $$PKG/.MainActivity >/dev/null
+        sleep 5
+        rearm
         if bound; then log "$$tv: re-armed"; else log "$$tv: still off, will retry"; fi
       }
 

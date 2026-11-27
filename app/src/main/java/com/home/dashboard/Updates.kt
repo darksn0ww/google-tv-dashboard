@@ -1,18 +1,24 @@
 package com.home.dashboard
 
 import android.content.Context
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Notices newer releases; it never downloads or installs anything. At most once a day it asks
- * GitHub where "latest release" points, which says the version without an API call.
+ * Notices newer releases; it never downloads or installs anything. Once a day (every six hours
+ * with `autoUpdate`) it asks GitHub where "latest release" points, which says the version without
+ * an API call.
  */
 object Updates {
     private const val LATEST = "https://github.com/darksn0ww/google-tv-dashboard/releases/latest"
-    private const val DAY = 24 * 60 * 60_000L
+    private const val HOUR = 60 * 60_000L
+
+    fun interval(autoUpdate: Boolean) = if (autoUpdate) 6 * HOUR else 24 * HOUR
+
+    private const val TAG = "DashboardUpdate"
 
     private val http = OkHttpClient.Builder().followRedirects(false).callTimeout(15, TimeUnit.SECONDS).build()
 
@@ -40,19 +46,22 @@ object Updates {
     }
 
     /** The newer version if there is one. Blocking; failures just mean "nothing to report". */
-    fun check(ctx: Context): String? {
+    fun check(ctx: Context, maxAge: Long): String? {
         val installed = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: return null
         // Its own file name: 1.4.0 kept a bare version in "latest-version" and can't read this format.
         File(ctx.filesDir, "latest-version").delete()
         val file = File(ctx.filesDir, "release-check")
         val saved = remembered(runCatching { file.readText() }.getOrDefault(""), installed)
         var latest = saved.orEmpty()
-        if (saved == null || System.currentTimeMillis() - file.lastModified() >= DAY) {
+        if (saved == null || System.currentTimeMillis() - file.lastModified() >= maxAge) {
             val found = runCatching {
                 http.newCall(Request.Builder().url(LATEST).head().build()).execute().use { r ->
-                    versionIn(r.header("Location").orEmpty())
+                    val address = r.header("Location").orEmpty()
+                    versionIn(address).also {
+                        Log.i(TAG, "Asked for the latest release: HTTP ${r.code}, ${it ?: "no version in the answer"}")
+                    }
                 }
-            }.getOrNull()
+            }.onFailure { Log.w(TAG, "Couldn't ask for the latest release: $it") }.getOrNull()
             if (found != null) {
                 latest = found
                 runCatching { file.writeText("$found $installed") }

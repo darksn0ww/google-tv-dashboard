@@ -57,6 +57,12 @@ fun InstallPermissionPrompt(ctx: Context, onDone: () -> Unit) {
                     "in the list on the next screen, then press the Home button.",
                 14.sp, lineHeight = 19.sp, shadow = false,
             )
+            if (Build.MANUFACTURER.equals("TCL", ignoreCase = true)) {
+                Txt(
+                    "TCL TVs don't restart the Home button after an update. Only allow this if you run the watchdog.",
+                    13.sp, color = Color(0xFFFF9F0A), lineHeight = 18.sp, shadow = false,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PromptButton("Not now", Modifier.focusRequester(notNow), ::done)
                 PromptButton("Open settings", Modifier) {

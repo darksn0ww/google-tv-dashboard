@@ -500,6 +500,11 @@ allow_updates() { # settings file
   step "Automatic updates"
   say "  To update itself, the dashboard needs Android's permission to install apps. Android only
   accepts an update signed with the same key as the installed app."
+  if [ "$(tv getprop ro.product.manufacturer)" = TCL ]; then
+    say "
+  WARNING: TCL TVs don't restart the Home button after an update, leaving you on Google TV's
+  home screen. Only allow this if you run the watchdog container (see the watchdog folder)."
+  fi
   if yes_no "Allow it on this TV?" n; then
     tv cmd appops set $PKG REQUEST_INSTALL_PACKAGES allow >/dev/null
     if may_install; then say "  Allowed."; else say "  That didn't work. Allow it on the TV when the dashboard asks."; fi

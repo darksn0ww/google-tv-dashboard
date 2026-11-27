@@ -2,7 +2,10 @@
 
 Some TVs (TCL, for one) block apps from starting themselves, so after a restart the Google TV
 home screen comes back. This container checks every minute and switches the dashboard's Home
-override back on. It only acts while the TV is showing a home screen.
+override back on. With dashboard 1.5.1 or later it does this in the background, whatever app is
+open, without interrupting it. With older versions it only acts on a home screen.
+
+If you turn the Home override off on purpose, stop this container too, or it will turn it back on.
 
 1. Set `TV_ADDRESSES` in `compose.yaml` to your TV (space-separated for several).
 2. `docker compose up -d --build`, then `docker compose logs -f`.

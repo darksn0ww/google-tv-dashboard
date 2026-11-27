@@ -316,7 +316,7 @@ The secret and token are stored in `config.json` and the app's private storage: 
 
 ## Updates
 
-Once a day the dashboard asks GitHub which release is latest, and shows a notice above the
+Once a day (every six hours with `autoUpdate`) the dashboard asks GitHub which release is latest, and shows a notice above the
 widgets if it's newer than the one installed. GitHub sees your public IP address, as with any
 visit; set `"updateCheck": false` to turn this off. By default nothing is downloaded or
 installed: run the [setup script](#quick-setup) to update.
@@ -329,8 +329,11 @@ and your permission to install apps: say yes when the setup script asks, or open
 "install unknown apps" screen from the dashboard's own prompt. Android and the dashboard both
 refuse an update that isn't signed with the same key as the installed app.
 
-A bad release would install itself too, and going back means uninstalling. It has been tried on
-a Google TV Streamer.
+A bad release would install itself too, and going back means uninstalling.
+
+**TCL TVs:** an update installs, but TCL doesn't let the app restart its services afterwards, so
+the Home button stops working until something turns it back on. Only use `autoUpdate` there with
+the [watchdog](watchdog/). A Google TV Streamer recovered by itself.
 
 ## Permissions
 

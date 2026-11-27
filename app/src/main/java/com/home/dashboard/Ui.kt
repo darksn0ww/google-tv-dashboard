@@ -148,8 +148,8 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         value = null
         if (!config.loaded || !config.updateCheck) return@produceState
         while (true) {
-            value = withContext(Dispatchers.IO) { Updates.check(ctx) }
-            delay(60 * 60_000L) // check() itself asks GitHub only once a day
+            value = withContext(Dispatchers.IO) { Updates.check(ctx, Updates.interval(config.autoUpdate)) }
+            delay(60 * 60_000L) // check() itself asks GitHub far less often
         }
     }
 
