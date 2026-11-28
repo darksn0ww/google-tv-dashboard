@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.SettingsInputHdmi
+import androidx.compose.material.icons.outlined.Shuffle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -52,6 +53,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -149,7 +152,9 @@ fun AppTile(
     onLongClick: (() -> Unit)? = null, onClick: () -> Unit,
 ) {
     Tile(app.label, onClick, modifier, onLongClick, jiggle) {
-        if (app.banner != null) {
+        if (app.pkg == WALLPAPER_TILE) {
+            IconFace(Icons.Outlined.Shuffle, 40.dp)
+        } else if (app.banner != null) {
             Image(app.banner, app.label, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
             Column(
@@ -205,17 +210,23 @@ fun RecentTile(r: Recent, onClick: () -> Unit) {
     }
 }
 
+/** A white symbol, with an optional name under it, for tiles that have no artwork of their own. */
 @Composable
-fun InputTile(input: InputEntry, onClick: () -> Unit) {
-    Tile(input.label, onClick) {
-        Column(
-            Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2E3440), Color(0xFF1A1D24)))),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Image(Icons.Outlined.SettingsInputHdmi, null, Modifier.size(34.dp), colorFilter = ColorFilter.tint(Color.White))
+private fun IconFace(icon: ImageVector, size: Dp, name: String? = null) {
+    Column(
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2E3440), Color(0xFF1A1D24)))),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Image(icon, null, Modifier.size(size), colorFilter = ColorFilter.tint(Color.White))
+        if (name != null) {
             Spacer(Modifier.height(6.dp))
-            Txt(input.label, 13.sp, FontWeight.Medium, shadow = false)
+            Txt(name, 13.sp, FontWeight.Medium, maxLines = 1, shadow = false)
         }
     }
+}
+
+@Composable
+fun InputTile(input: InputEntry, onClick: () -> Unit) {
+    Tile(input.label, onClick) { IconFace(inputKind(input.label).icon, 38.dp, input.label) }
 }

@@ -50,6 +50,7 @@ data class HaConfig(
     val maps: List<String> = emptyList(), // vacuum map `image` entities, one per floor
     val mapSelect: String = "", // optional `select` naming the floor in use
     val care: List<HaDevice> = emptyList(), // sensors for brush, filter etc. life
+    val dockMap: String = "", // optional: which of [maps] is the floor with the dock
 ) {
     val connected get() = url.isNotBlank() && token.isNotBlank()
     val ready get() = connected && climate.isNotBlank()

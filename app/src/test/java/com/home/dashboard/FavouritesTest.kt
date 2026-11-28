@@ -12,6 +12,13 @@ class FavouritesTest {
         assertEquals(listOf("a"), Favourites.decode("rubbish", listOf("a")))
     }
 
+    @Test fun newWallpaperSitsAfterSettings() {
+        val w = WALLPAPER_TILE
+        assertEquals(listOf("a", "com.android.tv.settings", w, "b"), appsRowOrder(listOf("a", "com.android.tv.settings", w, "b")))
+        assertEquals(listOf("a", "b", w), appsRowOrder(listOf("a", w, "b")))
+        assertEquals(listOf("a"), appsRowOrder(listOf("a")))
+    }
+
     @Test fun movesPastAppsThatAreNotInstalled() {
         val list = listOf("a", "missing", "b")
         assertEquals(listOf("b", "missing", "a"), Favourites.move(list, listOf("a", "b"), "a", 1))

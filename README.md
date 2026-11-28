@@ -21,10 +21,12 @@ camera pictures are stock photos. Photos from [Unsplash](https://unsplash.com) b
 - **Widgets:** clock, weather with a 5-day forecast, heating from [Home Assistant](#heating-from-home-assistant),
   [tado°](#heating-straight-from-tado) or [Google Nest](#google-nest-thermostat-experimental), and a merged calendar
   from any number of iCal / webcal links, or a plain month view
-- **Weather and calendar screens:** select either widget for the next 12 hours and 10 days of
-  weather (move down the days for each one's details), or the next 30 days with event dots and details
-- **Wallpaper:** random photos from Unsplash, or your own picture
-- **Apps:** a favourites row, every other app, and physical inputs on TVs that have them. Hold OK on
+- **Weather and calendar screens:** select either widget for 10 days of weather
+  (move down the days for each one's hours and details), or the next 30 days with event dots and details
+- **Wallpaper:** random photos from Unsplash, or your own picture. With Unsplash, a "New wallpaper" tile (in the
+  Apps row until you move it to your favourites) changes it straight away, using one API request
+- **Apps:** a favourites row, every other app, and physical inputs on TVs that have them, with an icon
+  guessed from each input's name (Wii, PS5, Blu-ray, soundbar and so on). Hold OK on
   an app to rearrange: tiles wobble, and you can move, remove and add favourites
 - **Home and Back:** both return to the first favourite
 - **Smart home panel:** vacuum, plugs and lights through Home Assistant
@@ -257,10 +259,13 @@ makes it full screen; Back shrinks it again:
     "devices": [{"name": "Lamp", "entity": "light.lamp"}],
     "maps": ["image.robot_downstairs", "image.robot_upstairs"],
     "mapSelect": "select.robot_selected_map",
+    "dockMap": "image.robot_downstairs",
     "care": [{"name": "Filter", "entity": "sensor.robot_filter_time_left"}]
 
 `care` lists sensors shown on the full screen when there are no plugs or lights. `maps` shows the vacuum's map in the panel (the Roborock integration provides these `image`
-entities). With `mapSelect`, the floor the vacuum has selected is shown. Heating is read-only. The TV only sends commands to the entities listed here, and only
+entities). With `mapSelect`, the floor the vacuum has selected is shown.
+If only one floor has a dock, set `dockMap` to that floor's map and it is shown whenever the vacuum is
+docked. With a dock on each floor, leave `dockMap` out: the selected floor is shown. Heating is read-only. The TV only sends commands to the entities listed here, and only
 `light`, `switch`, `fan` and `input_boolean` devices. That is a limit of the app, not of the
 token, which can do whatever its Home Assistant user can.
 

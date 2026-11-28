@@ -53,6 +53,24 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
+ * The watchdog sends this just before it reconnects [HomeOverrideService] in the background, so
+ * the service knows not to bring the dashboard up over whatever is on screen. Only adb and the
+ * system can send it (see the manifest).
+ */
+class QuietRepairReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        announcedAt = SystemClock.elapsedRealtime()
+    }
+
+    companion object {
+        @Volatile private var announcedAt = 0L
+
+        /** True if a background repair was announced in the last minute. */
+        fun underWay() = announcedAt != 0L && SystemClock.elapsedRealtime() - announcedAt < 60_000L
+    }
+}
+
+/**
  * Google TV's own launcher always wins the HOME intent, so when it comes to the
  * foreground we immediately bring our dashboard up instead.
  */
@@ -128,12 +146,14 @@ class HomeOverrideService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) updateResults = AutoUpdate.watchResults(this)
         // At boot (or after our own update) Google TV's home may already be showing, and pressing
         // Home again then fires no window change, so take over straight away. At any other time
-        // stay out of the way: the watchdog may be reconnecting us while something plays. The
+        // stay out of the way. So too when the watchdog is reconnecting us, even just after a boot:
+        // something may be playing by then, and it opens the dashboard itself if it should. The
         // service is direct-boot aware (Android skips others at boot, and a TCL never retries),
         // so it can connect before the user is unlocked; the dashboard can't start until then.
         if (getSystemService(UserManager::class.java).isUserUnlocked) {
             val updated = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && AutoUpdate.justUpdated(this)
-            if (updated || SystemClock.elapsedRealtime() < JUST_BOOTED) showDashboard()
+            val booted = SystemClock.elapsedRealtime() < JUST_BOOTED
+            if ((updated || booted) && !QuietRepairReceiver.underWay()) showDashboard()
             resumeScreensaverWait()
         } else {
             ContextCompat.registerReceiver(

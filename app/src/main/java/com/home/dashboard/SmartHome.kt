@@ -16,6 +16,22 @@ data class PanelState(
     val care: List<Pair<String, String>> = emptyList(), // name to what is left, e.g. "245 h"
 )
 
+/** The map to draw, and the floor it is of if known. */
+data class ShownMap(val map: HaEntity?, val floor: String?)
+
+private fun HaEntity.isOf(floor: String) = attributes.optString("friendly_name").endsWith(floor, true)
+
+/**
+ * While the vacuum is docked, the dock's floor ([dockMap]) if that is named. Otherwise the floor the
+ * vacuum has [selected], else whichever map changed last. [floors] are the names it can select.
+ */
+fun mapToShow(maps: List<HaEntity>, selected: String?, floors: List<String>, dockMap: String, docked: Boolean): ShownMap {
+    val dock = if (docked) maps.firstOrNull { it.id == dockMap } else null
+    if (dock != null) return ShownMap(dock, floors.firstOrNull { dock.isOf(it) })
+    val shown = maps.firstOrNull { selected != null && it.isOf(selected) } ?: maps.maxByOrNull { it.state }
+    return ShownMap(shown, selected)
+}
+
 /** The smart home panel's reads and commands. It only ever touches entities listed in the config. */
 class SmartHome(private val cfg: HaConfig) {
     private val ha = HomeAssistant(cfg.url, cfg.token)
@@ -38,11 +54,11 @@ class SmartHome(private val cfg: HaConfig) {
             val devices = cfg.devices.map { d ->
                 DeviceState(d, entity(d.entity)?.takeIf { it.available }?.let { it.state == "on" })
             }
-            // The floor the vacuum has selected, else whichever map changed last.
-            val floor = if (cfg.mapSelect.isBlank()) null else entity(cfg.mapSelect)?.state
+            val select = if (cfg.mapSelect.isBlank()) null else entity(cfg.mapSelect)
+            val options = select?.attributes?.optJSONArray("options")
+            val floors = options?.let { o -> (0 until o.length()).map { o.getString(it) } }.orEmpty()
             val maps = cfg.maps.mapNotNull { entity(it) }.filter { it.available }
-            val shown = maps.firstOrNull { floor != null && it.attributes.optString("friendly_name").endsWith(floor, true) }
-                ?: maps.maxByOrNull { it.state }
+            val (shown, floor) = mapToShow(maps, select?.state, floors, cfg.dockMap, vacuum?.state == "docked")
             val care = cfg.care.mapNotNull { c ->
                 val e = entity(c.entity)?.takeIf { it.available } ?: return@mapNotNull null
                 val number = e.state.toDoubleOrNull()?.let { Math.round(it).toString() } ?: e.state

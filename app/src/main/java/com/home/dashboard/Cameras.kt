@@ -73,8 +73,8 @@ fun CameraTile(cam: Camera, feed: CameraFeed, modifier: Modifier, onClick: () ->
         // The view keeps showing the last frame after the player stops.
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             AndroidView(
-                factory = { c -> TextureView(c).also { feed.player.setVideoTextureView(it) } },
-                onRelease = { feed.player.clearVideoTextureView(it); feed.hasFrame = false },
+                factory = { c -> TextureView(c).also { feed.attach(it) } },
+                onRelease = { feed.detach(it) },
                 modifier = Modifier.videoShape(feed.aspect),
             )
         }
@@ -97,12 +97,36 @@ fun CameraTile(cam: Camera, feed: CameraFeed, modifier: Modifier, onClick: () ->
 // ---------- Camera stills & live video ----------
 
 /** One camera's still-picture player. Lives outside the list so scrolling doesn't rebuild it. */
-class CameraFeed(val player: ExoPlayer) {
+class CameraFeed(private val ctx: Context) {
+    var player = mutedPlayer(ctx)
+        private set
+    private var view: TextureView? = null
     var aspect by mutableStateOf(16f / 9f)
     var hasFrame = false
     var shotAt = 0L
     /** True while the tile is on screen; there is no point connecting otherwise. */
     var visible = false
+
+    fun attach(to: TextureView) {
+        view = to
+        player.setVideoTextureView(to)
+    }
+
+    fun detach(from: TextureView) {
+        player.clearVideoTextureView(from)
+        if (view === from) view = null
+        hasFrame = false
+    }
+
+    /**
+     * Media3's RTSP client sometimes leaves its 30-second keep-alive running after a stream is
+     * closed, and only releasing the player ends it. The tile keeps showing its last picture.
+     */
+    fun renewPlayer() {
+        player.release()
+        player = mutedPlayer(ctx)
+        view?.let { player.setVideoTextureView(it) }
+    }
 }
 
 private fun VideoSize.aspect(): Float? =
@@ -132,8 +156,18 @@ private fun mutedPlayer(ctx: Context) = ExoPlayer.Builder(ctx).build().apply {
 fun rememberCameraFeeds(cams: List<Camera>, everySeconds: Int, paused: Boolean): List<CameraFeed> {
     val ctx = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val feeds = remember(cams) { cams.map { CameraFeed(mutedPlayer(ctx)) } }
-    DisposableEffect(feeds) { onDispose { feeds.forEach { it.player.release() } } }
+    val feeds = remember(cams) { cams.map { CameraFeed(ctx) } }
+    DisposableEffect(feeds, owner) {
+        // Off screen (an app or the screensaver) is when a fresh set of players goes unnoticed.
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) feeds.forEach { it.renewPlayer() }
+        }
+        owner.lifecycle.addObserver(obs)
+        onDispose {
+            owner.lifecycle.removeObserver(obs)
+            feeds.forEach { it.player.release() }
+        }
+    }
     LaunchedEffect(feeds, everySeconds, paused, owner) {
         if (paused) return@LaunchedEffect
         owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -154,23 +188,27 @@ fun rememberCameraFeeds(cams: List<Camera>, everySeconds: Int, paused: Boolean):
 
 private suspend fun grabFrame(cam: Camera, feed: CameraFeed) {
     val result = CompletableDeferred<Boolean>()
+    val player = feed.player // renewed if the dashboard goes off screen part-way through
     val listener = object : Player.Listener {
         override fun onRenderedFirstFrame() { result.complete(true) }
         override fun onVideoSizeChanged(videoSize: VideoSize) { videoSize.aspect()?.let { feed.aspect = it } }
         override fun onPlayerError(error: PlaybackException) { result.complete(false) }
     }
-    feed.player.addListener(listener)
+    player.addListener(listener)
     try {
-        feed.player.setMediaSource(rtspSource(cam.streamUrl))
-        feed.player.prepare()
+        player.setMediaSource(rtspSource(cam.streamUrl))
+        player.prepare()
         if (withTimeoutOrNull(8_000) { result.await() } == true) {
             delay(300)
             feed.hasFrame = true
         }
     } finally {
         feed.shotAt = SystemClock.elapsedRealtime()
-        feed.player.removeListener(listener)
-        feed.player.stop()
+        // A renewed player has already released this one.
+        if (player === feed.player) {
+            player.removeListener(listener)
+            player.stop()
+        }
     }
 }
 

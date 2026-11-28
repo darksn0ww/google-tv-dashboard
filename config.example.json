@@ -30,6 +30,7 @@
     "devices": [{"name": "Lamp", "entity": "light.lamp"}],
     "maps": ["image.robot_downstairs"],
     "mapSelect": "select.robot_selected_map",
+    "dockMap": "image.robot_downstairs",
     "care": [{"name": "Filter", "entity": "sensor.robot_filter_time_left"}]
   }
 }

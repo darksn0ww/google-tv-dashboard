@@ -232,7 +232,21 @@ fun dayTiles(w: Weather, index: Int): List<WeatherTile> {
     )
 }
 
-/** Current conditions and the next 12 hours; choose one of ten days to see its details. */
+/**
+ * The twelve slots of the hourly strip. Today: the next twelve hours. Another day: the whole of it
+ * two hours at a time, each showing the higher chance of rain of its two so a shower isn't missed.
+ */
+fun stripHours(w: Weather, day: Int, now: LocalDateTime): List<Hour> {
+    val date = w.days.getOrNull(day)?.date
+    if (day == 0 || date == null) return w.hours.filter { it.time.isAfter(now.minusHours(1)) }.take(12)
+    val hours = w.hours.filter { it.time.toLocalDate() == date }
+    return hours.filter { it.time.hour % 2 == 0 }.map { first ->
+        val next = hours.firstOrNull { it.time.hour == first.time.hour + 1 }
+        first.copy(rain = maxOf(first.rain, next?.rain ?: 0))
+    }
+}
+
+/** Current conditions; choose one of ten days to see its hours and details. */
 @Composable
 fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
     BackHandler(onBack = onClose)
@@ -243,7 +257,7 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
         runCatching { first.requestFocus() }
     }
     val now = remember { LocalDateTime.now() }
-    val hours = w.hours.filter { it.time.isAfter(now.minusHours(1)) }.take(12)
+    val hours = stripHours(w, chosen, now)
 
     Column(Modifier.fillMaxSize().background(weatherBrush(w.code, w.isDay)).padding(horizontal = 40.dp, vertical = 20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -259,7 +273,7 @@ fun WeatherScreen(w: Weather, place: String, onClose: () -> Unit) {
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Panel).padding(vertical = 8.dp)) {
             hours.forEachIndexed { i, h ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Txt(if (i == 0) "Now" else h.time.format(HHmm), 11.sp, FontWeight.SemiBold, shadow = false)
+                    Txt(if (i == 0 && chosen == 0) "Now" else h.time.format(HHmm), 11.sp, FontWeight.SemiBold, shadow = false)
                     Spacer(Modifier.height(5.dp))
                     WIcon(h.code, h.isDay, 20.dp)
                     Spacer(Modifier.height(2.dp))

@@ -295,6 +295,9 @@
             if ($maps.Count) {
                 $h.maps = $maps
                 $v = Pick 'Which one names the floor in use? (optional)' (Of 'select' 'selected_map'); if ($v) { $h.mapSelect = $v }
+                if ($maps.Count -gt 1) {
+                    $v = Pick 'Only one dock? Pick its floor, shown while docked (blank if each floor has a dock)' $maps; if ($v) { $h.dockMap = $v }
+                }
             }
         }
         $devices = @(foreach ($d in @(Pick 'Plugs and lights the TV may switch' (Of 'light|switch|fan|input_boolean') -Several)) {

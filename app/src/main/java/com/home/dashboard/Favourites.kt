@@ -10,6 +10,21 @@ import java.io.File
  * changes, so installing the same settings again doesn't undo your edits. A copy is left where
  * adb can read it, and the setup scripts write it back into your config.json.
  */
+/**
+ * "New wallpaper" is arranged like an app. This stands in for its package name, so it can be a
+ * favourite in the saved list and in config.json.
+ */
+const val WALLPAPER_TILE = "com.home.dashboard.wallpaper"
+private const val SETTINGS_APP = "com.android.tv.settings"
+
+/** The Apps row is alphabetical, except that "New wallpaper" sits after Settings, or else last. */
+fun appsRowOrder(alphabetical: List<String>): List<String> {
+    if (WALLPAPER_TILE !in alphabetical) return alphabetical
+    val rest = alphabetical - WALLPAPER_TILE
+    val at = rest.indexOf(SETTINGS_APP).let { if (it < 0) rest.size else it + 1 }
+    return rest.take(at) + WALLPAPER_TILE + rest.drop(at)
+}
+
 object Favourites {
     private fun file(ctx: Context) = File(ctx.filesDir, "favourites.json")
 

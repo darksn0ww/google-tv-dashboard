@@ -17,8 +17,8 @@ android {
         applicationId = "com.home.dashboard"
         minSdk = 28
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.5.2"
+        versionCode = 15
+        versionName = "1.6.0"
     }
     signingConfigs {
         if (signingFile != null) create("published") {

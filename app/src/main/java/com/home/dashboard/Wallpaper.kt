@@ -44,15 +44,27 @@ import coil.size.Precision
 import coil.size.Size
 import coil.transform.Transformation
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 // ---------- Wallpaper ----------
 
+/** Only Unsplash photos change by themselves, so only then is there another one to ask for. */
+fun canShuffle(cfg: Config) = cfg.wallpaper.isBlank() && cfg.unsplashKey.isNotBlank()
+
+private fun warned(ctx: Context) = File(ctx.filesDir, "no-shuffle-warning")
+fun skipsShuffleWarning(ctx: Context) = warned(ctx).exists()
+fun skipShuffleWarningFromNow(ctx: Context) {
+    runCatching { warned(ctx).writeText("") }
+}
+
+/** A message on [shuffle] moves to the next photo without waiting out its time. */
 @Composable
-fun rememberWallpaper(cfg: Config): Photo? {
+fun rememberWallpaper(cfg: Config, shuffle: Channel<Unit>): Photo? {
     val ctx = LocalContext.current
     var current by remember { mutableStateOf<Photo?>(null) }
     LaunchedEffect(cfg.wallpaper, cfg.unsplashKey, cfg.unsplashQueries, cfg.wallpaperMinutes) {
@@ -77,7 +89,8 @@ fun rememberWallpaper(cfg: Config): Photo? {
             if (res is SuccessResult) {
                 current = next
                 launch(Dispatchers.IO) { Unsplash.trackDownload(cfg, next) }
-                delay(cfg.wallpaperMinutes * 60_000L)
+                shuffle.tryReceive() // presses made while this one loaded don't count twice
+                withTimeoutOrNull(cfg.wallpaperMinutes * 60_000L) { shuffle.receive() }
             }
         }
     }

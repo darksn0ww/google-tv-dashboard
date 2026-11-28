@@ -372,6 +372,10 @@ home_assistant() {
       h=$(add "$h" maps "[$maps]")
       v=$(pick "Which one names the floor in use? (optional)" "$(of select selected_map)")
       [ -n "$v" ] && h=$(add "$h" mapSelect "$(json "$v")")
+      case $maps in *,*)
+        v=$(pick "Only one dock? Pick its floor, shown while docked (blank if each floor has a dock)" "$list")
+        [ -n "$v" ] && h=$(add "$h" dockMap "$(json "$v")") ;;
+      esac
     fi
   fi
   list=$(pick "Plugs and lights the TV may switch" "$(of 'light|switch|fan|input_boolean')" several)

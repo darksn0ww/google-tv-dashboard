@@ -91,6 +91,9 @@ check() {
     sh_tv am broadcast -a androidx.profileinstaller.action.BENCHMARK_OPERATION \
       -n $PKG/androidx.profileinstaller.ProfileInstallReceiver >/dev/null
     sleep 2
+    # Tell the app this is a background repair, so reconnecting doesn't bring it up over whatever
+    # you're doing, even just after a boot. Apps older than 1.6.0 don't have this and ignore it.
+    sh_tv am broadcast -n $PKG/.QuietRepairReceiver >/dev/null
     rearm
     if bound; then
       log "$tv: re-armed"

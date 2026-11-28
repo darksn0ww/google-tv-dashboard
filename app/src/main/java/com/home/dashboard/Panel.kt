@@ -120,10 +120,8 @@ fun SmartHomePanel(cfg: HaConfig, heating: HeatingState?, onClose: () -> Unit) {
     var failed by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     var expanded by remember { mutableStateOf(false) }
-    var toggled by remember { mutableStateOf(false) } // after expanding or shrinking, stay on that button
     var picture by remember { mutableStateOf<ImageBitmap?>(null) }
     val scope = rememberCoroutineScope()
-    val first = remember { FocusRequester() }
     val sideSize = remember { FocusRequester() }
     val fullSize = remember { FocusRequester() }
     // Both layouts are kept, so expanding only fades between them. Building one mid-animation
@@ -164,7 +162,6 @@ fun SmartHomePanel(cfg: HaConfig, heating: HeatingState?, onClose: () -> Unit) {
         toggle = { d -> state?.devices?.firstOrNull { it.device == d }?.on?.let { on -> command { home.set(d, !on) } } },
     )
     fun resize() {
-        toggled = true
         expanded = !expanded
     }
 
@@ -187,7 +184,7 @@ fun SmartHomePanel(cfg: HaConfig, heating: HeatingState?, onClose: () -> Unit) {
             },
         ) {
             Layer(shown = !expanded, alpha = { (1 - progress.value * 2).coerceIn(0f, 1f) }) {
-                SidePanel(model, Modifier.focusRequester(sideSize), Modifier.focusRequester(first), ::resize)
+                SidePanel(model, Modifier.focusRequester(sideSize), ::resize)
             }
             if (warm || expanded) {
                 Layer(shown = expanded, alpha = { (progress.value * 2 - 1).coerceIn(0f, 1f) }) {
@@ -195,14 +192,11 @@ fun SmartHomePanel(cfg: HaConfig, heating: HeatingState?, onClose: () -> Unit) {
                 }
             }
         }
+        // Always start on expand / shrink, never on a control: a second press of OK on the heating
+        // card must not start the vacuum or switch something.
         LaunchedEffect(expanded) {
             delay(80)
-            val target = when {
-                expanded -> fullSize
-                toggled || cfg.vacuum.isBlank() -> sideSize
-                else -> first
-            }
-            runCatching { target.requestFocus() }
+            runCatching { (if (expanded) fullSize else sideSize).requestFocus() }
         }
     }
 }
@@ -225,7 +219,7 @@ private fun Layer(shown: Boolean, alpha: () -> Float, content: @Composable () ->
 // ---------- Side panel ----------
 
 @Composable
-private fun SidePanel(m: PanelModel, sizing: Modifier, initial: Modifier, onExpand: () -> Unit) {
+private fun SidePanel(m: PanelModel, sizing: Modifier, onExpand: () -> Unit) {
     Column(
         Modifier.padding(12.dp).width(396.dp).fillMaxHeight().padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -271,7 +265,7 @@ private fun SidePanel(m: PanelModel, sizing: Modifier, initial: Modifier, onExpa
                     MapTile(m.map, Color(0xFF1C1C1E), Modifier.weight(1f).fillMaxHeight())
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically)) {
-                        RoundButton(Icons.Filled.PlayArrow, "Start cleaning", initial, 50.dp, Color(0xFF0A84FF), m.start)
+                        RoundButton(Icons.Filled.PlayArrow, "Start cleaning", Modifier, 50.dp, Color(0xFF0A84FF), m.start)
                         RoundButton(Icons.Filled.Pause, "Pause", Modifier, 50.dp, onClick = m.pause)
                         RoundButton(Icons.Filled.Home, "Return to dock", Modifier, 50.dp, onClick = m.dock)
                     }

@@ -31,6 +31,22 @@ class ScreensTest {
         assertFalse(occursOn(e, LocalDate.of(2026, 1, 12)))
     }
 
+    @Test fun hourlyStripFollowsTheChosenDay() {
+        val start = LocalDate.of(2026, 1, 1).atStartOfDay()
+        val hours = (0 until 72).map { Hour(start.plusHours(it.toLong()), it, 0, true, if (it == 27) 80 else 0) }
+        val days = (0L..2L).map { Day(start.toLocalDate().plusDays(it), 0, 0, 0) }
+        val w = Weather(temp = 0, feels = 0, code = 0, isDay = true, hi = 0, lo = 0, days = days, hours = hours)
+
+        val today = stripHours(w, 0, start.plusHours(14).plusMinutes(30))
+        assertEquals((14..25).toList(), today.map { it.temp }) // the next twelve hours, from this one
+
+        val tomorrow = stripHours(w, 1, start.plusHours(14))
+        assertEquals(12, tomorrow.size)
+        assertTrue(tomorrow.all { it.time.toLocalDate() == days[1].date })
+        assertEquals((0..22 step 2).toList(), tomorrow.map { it.time.hour })
+        assertEquals(80, tomorrow[1].rain) // 02:00 carries the 03:00 shower
+    }
+
     @Test fun weeksCoverThirtyDays() {
         val today = LocalDate.of(2026, 11, 26) // a Thursday
         val weeks = calendarWeeks(today, DayOfWeek.MONDAY)

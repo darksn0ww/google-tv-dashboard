@@ -135,6 +135,7 @@ data class Config(
                     h.optJSONArray("care")?.let { a ->
                         (0 until a.length()).map { val c = a.getJSONObject(it); HaDevice(c.getString("name"), c.getString("entity")) }
                     }.orEmpty(),
+                    dockMap = h.optString("dockMap"),
                 )
             },
             tado = j.optBoolean("tado"),

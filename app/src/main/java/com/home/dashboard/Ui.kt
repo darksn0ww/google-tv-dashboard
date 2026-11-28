@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -164,7 +165,12 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         if (config.loaded) value = withContext(Dispatchers.IO) { Apps.load(ctx) }
     }
 
-    val photo = rememberWallpaper(config)
+    val shuffle = remember { Channel<Unit>(Channel.CONFLATED) }
+    val photo = rememberWallpaper(config, shuffle)
+    var askShuffle by remember { mutableStateOf(false) }
+    fun newWallpaper() {
+        if (skipsShuffleWarning(ctx)) shuffle.trySend(Unit) else askShuffle = true
+    }
     // Where heating comes from: Home Assistant if it names a thermostat, else Nest, else tado directly.
     // Only the chosen source is ever polled, and only while on screen.
     val ha = config.homeAssistant
@@ -243,11 +249,17 @@ fun Dashboard(homePresses: StateFlow<Int>) {
     var held by remember { mutableStateOf<String?>(null) } // favourite being moved
     var focusApp by remember { mutableStateOf<String?>(null) } // tile to focus after the rows change
     val appFocus = remember { mutableMapOf<String, FocusRequester>() }
-    val allApps = remember(apps) { apps.all.associateBy { it.pkg } }
+    val shuffles = canShuffle(config)
+    val allApps = remember(apps, shuffles) {
+        val extra = if (shuffles) listOf(AppEntry(WALLPAPER_TILE, "New wallpaper", null, null, Intent())) else emptyList()
+        (apps.all + extra).associateBy { it.pkg }
+    }
     val favApps = remember(allApps, favourites) { favourites.mapNotNull { allApps[it] } }
     val otherApps = remember(allApps, favourites, config.hidden) {
-        allApps.values.filter { it.pkg !in favourites && it.pkg !in config.hidden }.sortedBy { it.label.lowercase() }
+        val alphabetical = allApps.values.filter { it.pkg !in favourites && it.pkg !in config.hidden }.sortedBy { it.label.lowercase() }
+        appsRowOrder(alphabetical.map { it.pkg }).mapNotNull { allApps[it] }
     }
+    fun open(a: AppEntry) = if (a.pkg == WALLPAPER_TILE) newWallpaper() else launch(ctx, a.intent)
     fun keepFavourites(list: List<String>) {
         favourites = list
         Favourites.save(ctx, config.favourites, list)
@@ -271,6 +283,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
         fullCam = null
         lastCam = -1
         panelOpen = false
+        askShuffle = false
         screen = null
         lastScreen = null
         goHome()
@@ -405,7 +418,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                     badge = if (moving) "◀ ▶" else null,
                                     onLongClick = { editing = true },
                                 ) {
-                                    if (editing) held = if (moving) null else a.pkg else launch(ctx, a.intent)
+                                    if (editing) held = if (moving) null else a.pkg else open(a)
                                 }
                             }
                         }
@@ -449,7 +462,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                                         held = null
                                         focusApp = otherApps.getOrNull(i + 1)?.pkg ?: otherApps.getOrNull(i - 1)?.pkg ?: a.pkg
                                         keepFavourites(favourites - a.pkg + a.pkg)
-                                    } else launch(ctx, a.intent)
+                                    } else open(a)
                                 }
                             }
                         }
@@ -457,6 +470,7 @@ fun Dashboard(homePresses: StateFlow<Int>) {
                 }
             }
             if (askInstall) InstallPermissionPrompt(ctx) { askInstall = false }
+            if (askShuffle) ShufflePrompt(ctx, onConfirm = { shuffle.trySend(Unit) }) { askShuffle = false }
             if (config.problem.isNotEmpty()) {
                 Box(
                     Modifier.align(Alignment.BottomStart).padding(16.dp).background(Color(0xE61C1C1E), RoundedCornerShape(10.dp))

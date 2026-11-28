@@ -84,6 +84,34 @@ fun InstallPermissionPrompt(ctx: Context, onDone: () -> Unit) {
     }
 }
 
+/** A new wallpaper costs an Unsplash request, and a free key has only so many an hour. */
+@Composable
+fun ShufflePrompt(ctx: Context, onConfirm: () -> Unit, onDone: () -> Unit) {
+    val cancel = remember { FocusRequester() }
+    Dialog(onDismissRequest = onDone) {
+        Column(
+            Modifier.width(520.dp).background(Color(0xFF1C1C1E), RoundedCornerShape(24.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Txt("New wallpaper?", 20.sp, FontWeight.SemiBold, shadow = false)
+            Txt("This will use one of your limited Unsplash API calls.", 14.sp, lineHeight = 19.sp, shadow = false)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PromptButton("Cancel", Modifier.focusRequester(cancel), onDone)
+                PromptButton("Change it", Modifier) { onConfirm(); onDone() }
+                PromptButton("Change, don't ask again", Modifier) {
+                    skipShuffleWarningFromNow(ctx)
+                    onConfirm()
+                    onDone()
+                }
+            }
+        }
+        LaunchedEffect(Unit) {
+            delay(80)
+            runCatching { cancel.requestFocus() }
+        }
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PromptButton(label: String, modifier: Modifier, onClick: () -> Unit) {
