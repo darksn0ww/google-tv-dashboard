@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" width="820" height="300" role="img" aria-label="google-tv-dashboard is now Lintel">
+  <rect width="820" height="300" rx="20" fill="#17191d"/>
+  <rect x="48" y="72" width="190" height="30" rx="7" fill="#e9e4da"/>
+  <rect x="66" y="112" width="24" height="122" fill="#e9e4da"/>
+  <rect x="196" y="112" width="24" height="122" fill="#e9e4da"/>
+  <rect x="106" y="126" width="74" height="54" rx="9" fill="#5dcaa5"/>
+  <text x="282" y="78" font-family="'SFMono-Regular', Menlo, Consolas, monospace" font-size="21" fill="#8b93a1"><tspan text-decoration="line-through">google-tv-dashboard</tspan><tspan dx="12" fill="#f2a33c">is now</tspan></text>
+  <text x="276" y="178" font-family="Georgia, 'Times New Roman', serif" font-size="112" font-weight="700" fill="#f4f1ea" textLength="360" lengthAdjust="spacingAndGlyphs">Lintel</text>
+  <rect x="282" y="194" width="120" height="5" rx="2" fill="#5dcaa5"/>
+  <rect x="408" y="194" width="52" height="5" rx="2" fill="#f2a33c"/>
+  <rect x="466" y="194" width="24" height="5" rx="2" fill="#ff7a6b"/>
+  <text x="282" y="232" font-family="'Helvetica Neue', Arial, sans-serif" font-size="24" font-style="italic" fill="#b9a6ff">a calmer home screen for your TV</text>
+  <text x="282" y="266" font-family="'SFMono-Regular', Menlo, Consolas, monospace" font-size="20" fill="#5dcaa5">github.com/darksn0ww/lintel</text>
+</svg>

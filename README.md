@@ -1,3 +1,16 @@
+<p align="center"><a href="https://github.com/darksn0ww/lintel"><img src="docs/images/lintel-notice.svg" alt="google-tv-dashboard is now Lintel" width="820"></a></p>
+
+> ## google-tv-dashboard is now [Lintel](https://github.com/darksn0ww/lintel)
+>
+> This project was Lintel's alpha and beta. **New releases happen at
+> [github.com/darksn0ww/lintel](https://github.com/darksn0ww/lintel)**, so go there to install it.
+>
+> - TV Dashboard does **not** update itself into Lintel.
+> - Lintel is a separate app that installs alongside this one; its setup offers to remove the old app.
+> - Settings aren't carried over yet.
+
+---
+
 # TV Dashboard
 
 A calm, ad-free home screen for Google TV, written in Kotlin with Compose for TV.
